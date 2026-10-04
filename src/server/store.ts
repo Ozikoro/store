@@ -73,7 +73,7 @@ import {
 import { ordersForCustomer, ordersForEmail } from '../lib/orders';
 import { checkDiscount } from '../lib/discounts';
 import { db } from '../lib/env';
-import { isStaff } from '../lib/roles';
+import { isRole, isStaff } from '../lib/roles';
 
 /**
  * Resolve the request-scoped helpers, from inside a handler.
@@ -368,9 +368,12 @@ export const signIn = createServerFn({ method: 'POST' })
     }
 
     await clearRateLimit(key);
+    // The role comes from the ACCOUNT. The session carries a copy so an
+    // authorised request does not need a second read.
+    const role = isRole(customer.role) ? customer.role : 'customer';
     const { token, expiresAt } = await createSession({
       customerId: customer.id,
-      role: 'customer',
+      role,
       userAgent: userAgent(),
       ipHash: ip,
     });

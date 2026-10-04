@@ -13,6 +13,7 @@ import { useState, type ReactNode } from 'react';
 import { Button } from '@/components/ui/button';
 import { BrandLockup } from './brand';
 import { useCart } from './cart';
+import { useShellAccount } from './shell-account';
 
 const NAV = [
   { label: 'Shop', to: '/shop' },
@@ -33,8 +34,12 @@ export interface StoreLayoutProps {
   isStaff?: boolean;
 }
 
-export function StoreLayout({ children, minimal = false, isStaff = false }: StoreLayoutProps) {
+export function StoreLayout({ children, minimal = false, isStaff }: StoreLayoutProps) {
   const { cart } = useCart();
+  // The session is resolved on the server; this reads that result. It is a UI
+  // convenience only — every admin function checks the capability itself.
+  const account = useShellAccount();
+  const showAdmin = isStaff ?? account.isStaff;
   const [menuOpen, setMenuOpen] = useState(false);
   const location = useLocation();
 
@@ -104,7 +109,7 @@ export function StoreLayout({ children, minimal = false, isStaff = false }: Stor
                 </Link>
               </Button>
             )}
-            {isStaff && (
+            {showAdmin && (
               <Button variant="ghost" size="icon" asChild title="Admin">
                 <Link to="/admin" aria-label="Admin" data-testid="nav-admin">
                   <ShieldCheck />

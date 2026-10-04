@@ -45,6 +45,7 @@ import {
 } from '../lib/audit';
 import type { Actor } from '../lib/auth';
 import { isStaff, type Capability } from '../lib/roles';
+import { readString } from './typed';
 import { dashboardMetrics, recentCustomers } from '../lib/admin-metrics';
 import {
   archiveProduct as archiveProductLib,
@@ -945,4 +946,68 @@ export const getAuditLog = createServerFn({ method: 'GET' })
     const entity = isAuditEntity(data.entity) ? data.entity : null;
     const rows = await filteredAudit({ entity, entityId: data.entityId, limit: data.limit });
     return { rows, entity: entity ?? 'all', entityId: data.entityId };
+  });
+
+// ------------------------------------------------------------------ permissions
+
+/**
+ * Staff accounts and their roles.
+ *
+ * `permissions:write` is held only by `super_admin`, so an admin cannot promote
+ * themselves or each other. Every change clears the affected account's sessions,
+ * which is what makes a revocation take effect now rather than in thirty days.
+ */
+export const listStaffAccounts = createServerFn({ method: 'GET' }).handler(async () => {
+  await requireStaff('permissions:write');
+  const { listStaff } = await import('../lib/auth');
+  const rows = await listStaff();
+  return rows.map((row) => ({
+    id: row.id,
+    email: row.email,
+    name: row.name,
+    role: row.role,
+    createdAt: row.created_at,
+  }));
+});
+
+export const setStaffRole = createServerFn({ method: 'POST' })
+  .validator((input: unknown) => {
+    const data = input as Record<string, unknown>;
+    const str = (value: unknown): string => (typeof value === 'string' ? value : '');
+    return { email: str(data['email']).trim().toLowerCase(), role: str(data['role']) };
+  })
+  .handler(async ({ data }) => {
+    const actor = await requireStaff('permissions:write');
+    const { findCustomerByEmail, setCustomerRole } = await import('../lib/auth');
+    const { isRole } = await import('../lib/roles');
+
+    const email = readString(data, 'email');
+    const role = readString(data, 'role');
+    if (!isRole(role)) return { ok: false as const, error: 'That is not a role this store has.' };
+
+    const customer = await findCustomerByEmail(email);
+    if (!customer) {
+      return { ok: false as const, error: 'No account with that email. They need to register first.' };
+    }
+    // The last super admin must not be able to demote themselves out of the
+    // store. Without this, one click leaves nobody able to grant anything.
+    if (customer.id === actor.customerId && customer.role === 'super_admin' && role !== 'super_admin') {
+      const { listStaff } = await import('../lib/auth');
+      const staff = await listStaff();
+      const supers = staff.filter((row) => row.role === 'super_admin');
+      if (supers.length <= 1) {
+        return { ok: false as const, error: 'This is the only super admin. Promote someone else first.' };
+      }
+    }
+
+    await setCustomerRole(customer.id, role);
+    await recordAudit({
+      actor: { id: actor.customerId ?? actor.sessionId, email: actor.email },
+      action: 'account.role_changed',
+      entity: 'customer',
+      entityId: customer.id,
+      before: { role: customer.role },
+      after: { role },
+    });
+    return { ok: true as const, email: customer.email, role };
   });

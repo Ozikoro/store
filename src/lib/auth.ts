@@ -132,6 +132,8 @@ export interface CustomerRow {
   password_hash: string | null;
   password_salt: string | null;
   marketing_opt_in: number;
+  /** The account's role. The session carries a copy taken at sign-in. */
+  role: string;
   created_at: string;
 }
 
@@ -244,6 +246,30 @@ export async function authenticate(email: string, password: string): Promise<Cus
   }
   const ok = await verifyPassword(password, { hash: customer.password_hash, salt: customer.password_salt });
   return ok ? customer : null;
+}
+
+/**
+ * Grant or revoke a role.
+ *
+ * This is the only writer of `customers.role`, and every caller must have passed
+ * a `permissions:write` capability check. Existing sessions are cleared so the
+ * change takes effect at the next sign-in rather than up to 30 days later — a
+ * revoked admin who keeps working for a month is not a revocation.
+ */
+export async function setCustomerRole(customerId: string, role: Role): Promise<void> {
+  await db()
+    .prepare(`UPDATE customers SET role = ?2, updated_at = datetime('now') WHERE id = ?1`)
+    .bind(customerId, role)
+    .run();
+  await destroyAllSessionsFor(customerId);
+}
+
+/** Every account that holds a role other than `customer`. */
+export async function listStaff(): Promise<CustomerRow[]> {
+  const result = await db()
+    .prepare(`SELECT * FROM customers WHERE role != 'customer' ORDER BY role, email`)
+    .all<CustomerRow>();
+  return result.results ?? [];
 }
 
 export async function setCustomerPassword(customerId: string, password: string): Promise<void> {

@@ -26,6 +26,7 @@ import { Route as AdminIndexRouteImport } from './routes/admin/index'
 import { Route as AdminAuditRouteImport } from './routes/admin/audit'
 import { Route as AdminDiscountsRouteImport } from './routes/admin/discounts'
 import { Route as AdminOrdersRouteImport } from './routes/admin/orders'
+import { Route as AdminPermissionsRouteImport } from './routes/admin/permissions'
 import { Route as AdminProductsRouteImport } from './routes/admin/products'
 import { Route as CheckoutCallbackRouteImport } from './routes/checkout.callback'
 import { Route as CollectionsIndexRouteImport } from './routes/collections/index'
@@ -120,6 +121,11 @@ const AdminOrdersRoute = AdminOrdersRouteImport.update({
   path: '/orders',
   getParentRoute: () => AdminRouteRoute,
 } as any)
+const AdminPermissionsRoute = AdminPermissionsRouteImport.update({
+  id: '/permissions',
+  path: '/permissions',
+  getParentRoute: () => AdminRouteRoute,
+} as any)
 const AdminProductsRoute = AdminProductsRouteImport.update({
   id: '/products',
   path: '/products',
@@ -177,6 +183,7 @@ export interface FileRoutesByFullPath {
   '/admin/audit': typeof AdminAuditRoute
   '/admin/discounts': typeof AdminDiscountsRoute
   '/admin/orders': typeof AdminOrdersRouteWithChildren
+  '/admin/permissions': typeof AdminPermissionsRoute
   '/admin/products': typeof AdminProductsRouteWithChildren
   '/checkout/callback': typeof CheckoutCallbackRoute
   '/collections/$slug': typeof CollectionsSlugRoute
@@ -203,6 +210,7 @@ export interface FileRoutesByTo {
   '/admin/audit': typeof AdminAuditRoute
   '/admin/discounts': typeof AdminDiscountsRoute
   '/admin/orders': typeof AdminOrdersRouteWithChildren
+  '/admin/permissions': typeof AdminPermissionsRoute
   '/admin/products': typeof AdminProductsRouteWithChildren
   '/checkout/callback': typeof CheckoutCallbackRoute
   '/collections/$slug': typeof CollectionsSlugRoute
@@ -231,6 +239,7 @@ export interface FileRoutesById {
   '/admin/audit': typeof AdminAuditRoute
   '/admin/discounts': typeof AdminDiscountsRoute
   '/admin/orders': typeof AdminOrdersRouteWithChildren
+  '/admin/permissions': typeof AdminPermissionsRoute
   '/admin/products': typeof AdminProductsRouteWithChildren
   '/checkout/callback': typeof CheckoutCallbackRoute
   '/collections/$slug': typeof CollectionsSlugRoute
@@ -260,6 +269,7 @@ export interface FileRouteTypes {
     | '/admin/audit'
     | '/admin/discounts'
     | '/admin/orders'
+    | '/admin/permissions'
     | '/admin/products'
     | '/checkout/callback'
     | '/collections/$slug'
@@ -286,6 +296,7 @@ export interface FileRouteTypes {
     | '/admin/audit'
     | '/admin/discounts'
     | '/admin/orders'
+    | '/admin/permissions'
     | '/admin/products'
     | '/checkout/callback'
     | '/collections/$slug'
@@ -313,6 +324,7 @@ export interface FileRouteTypes {
     | '/admin/audit'
     | '/admin/discounts'
     | '/admin/orders'
+    | '/admin/permissions'
     | '/admin/products'
     | '/checkout/callback'
     | '/collections/$slug'
@@ -466,6 +478,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminOrdersRouteImport
       parentRoute: typeof AdminRouteRoute
     }
+    '/admin/permissions': {
+      id: '/admin/permissions'
+      path: '/permissions'
+      fullPath: '/admin/permissions'
+      preLoaderRoute: typeof AdminPermissionsRouteImport
+      parentRoute: typeof AdminRouteRoute
+    }
     '/admin/products': {
       id: '/admin/products'
       path: '/products'
@@ -553,6 +572,7 @@ interface AdminRouteRouteChildren {
   AdminAuditRoute: typeof AdminAuditRoute
   AdminDiscountsRoute: typeof AdminDiscountsRoute
   AdminOrdersRoute: typeof AdminOrdersRouteWithChildren
+  AdminPermissionsRoute: typeof AdminPermissionsRoute
   AdminProductsRoute: typeof AdminProductsRouteWithChildren
   AdminIndexRoute: typeof AdminIndexRoute
 }
@@ -561,6 +581,7 @@ const AdminRouteRouteChildren: AdminRouteRouteChildren = {
   AdminAuditRoute: AdminAuditRoute,
   AdminDiscountsRoute: AdminDiscountsRoute,
   AdminOrdersRoute: AdminOrdersRouteWithChildren,
+  AdminPermissionsRoute: AdminPermissionsRoute,
   AdminProductsRoute: AdminProductsRouteWithChildren,
   AdminIndexRoute: AdminIndexRoute,
 }

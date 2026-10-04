@@ -22,7 +22,13 @@ import { can, type Capability } from '@/lib/roles';
 
 interface NavItem {
   label: string;
-  to: '/admin' | '/admin/orders' | '/admin/products' | '/admin/discounts' | '/admin/audit';
+  to:
+    | '/admin'
+    | '/admin/orders'
+    | '/admin/products'
+    | '/admin/discounts'
+    | '/admin/audit'
+    | '/admin/permissions';
   capability: Capability;
 }
 
@@ -32,6 +38,9 @@ const NAV: readonly NavItem[] = [
   { label: 'Products', to: '/admin/products', capability: 'catalog:read' },
   { label: 'Discounts', to: '/admin/discounts', capability: 'catalog:write' },
   { label: 'Audit', to: '/admin/audit', capability: 'dashboard:read' },
+  // Only a super admin sees this link, and only a super admin can call the
+  // functions behind it. The link is convenience; the check is the server's.
+  { label: 'Permissions', to: '/admin/permissions', capability: 'permissions:write' },
 ];
 
 export function useAdminSession() {
@@ -199,10 +208,23 @@ export function StatCard({
   );
 }
 
-export function ErrorNote({ children, testId = 'admin-error' }: { children: ReactNode; testId?: string }) {
+export function ErrorNote({
+  children,
+  testId = 'admin-error',
+  tone = 'error',
+}: {
+  children: ReactNode;
+  testId?: string;
+  /** `success` is for a change that worked; the default is for one that did not. */
+  tone?: 'error' | 'success';
+}) {
   if (!children) return null;
+  const classes =
+    tone === 'success'
+      ? 'border-primary-strong/50 bg-primary/10 text-foreground'
+      : 'border-destructive text-destructive';
   return (
-    <p className="text-sm border border-destructive text-destructive px-3 py-2 mt-3" data-testid={testId}>
+    <p className={`text-sm border px-3 py-2 mt-3 ${classes}`} data-testid={testId} role="status">
       {children}
     </p>
   );

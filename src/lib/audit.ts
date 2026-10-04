@@ -13,7 +13,16 @@
 import { db } from './env';
 import { randomToken } from './crypto';
 
-export type AuditEntity = 'product' | 'variant' | 'order' | 'refund' | 'discount' | 'shipment';
+export type AuditEntity =
+  | 'product'
+  | 'variant'
+  | 'order'
+  | 'refund'
+  | 'discount'
+  | 'shipment'
+  // Accounts are audited because changing a role is a privilege change, and a
+  // privilege change with no record is an incident nobody can reconstruct.
+  | 'customer';
 
 export interface AuditActor {
   id: string;
@@ -21,7 +30,7 @@ export interface AuditActor {
 }
 
 export function isAuditEntity(value: string): value is AuditEntity {
-  return ['product', 'variant', 'order', 'refund', 'discount', 'shipment'].includes(value);
+  return ['product', 'variant', 'order', 'refund', 'discount', 'shipment', 'customer'].includes(value);
 }
 
 /**

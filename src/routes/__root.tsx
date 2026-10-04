@@ -3,6 +3,7 @@ import { Outlet, createRootRouteWithContext, HeadContent, Scripts } from '@tanst
 import type { ReactNode } from 'react';
 import appCss from '../styles.css?url';
 import { CartProvider, type CartSnapshot } from '@/store/cart';
+import { ShellAccountProvider } from '@/store/shell-account';
 import { getCart, getAdminSession } from '@/server/store';
 import { STORE_ORIGIN } from '@/store/head';
 import { NotFound } from '@/store/not-found';
@@ -72,12 +73,20 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
   ),
   component: () => {
     const { queryClient } = Route.useRouteContext();
-    const { cart } = Route.useLoaderData();
+    const { cart, admin } = Route.useLoaderData();
     return (
       <QueryClientProvider client={queryClient}>
-        <CartProvider initialCart={cart ?? undefined}>
-          <Outlet />
-        </CartProvider>
+        <ShellAccountProvider
+          account={{
+            isStaff: admin?.staff === true,
+            name: admin?.staff === true ? admin.name : '',
+            email: admin?.staff === true ? admin.email : '',
+          }}
+        >
+          <CartProvider initialCart={cart ?? undefined}>
+            <Outlet />
+          </CartProvider>
+        </ShellAccountProvider>
       </QueryClientProvider>
     );
   },
