@@ -1,0 +1,3 @@
+- [x] Interpret Ozikoro Store design brief and establish visual direction.
+- [x] Build storefront, catalog, collections, product, search, cart and checkout preview.
+- [x] Build informational and account/order preview screens and verify navigation.
