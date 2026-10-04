@@ -191,6 +191,33 @@ try {
   check('signed in as staff', signedIn === true);
   if (!signedIn) throw new Error('cannot continue without a signed-in staff session');
 
+  // --------------------------------------------------- sweep earlier debris
+  //
+  // A run that is interrupted — a timeout, a killed shell — leaves its probe
+  // product behind, because the cleanup in `finally` never executes. Two such
+  // products accumulated in the live shop. Archiving every `e2e-probe-*` product
+  // at the start makes each run repair the last one, so a live shop cannot
+  // slowly fill with test products no matter how a previous run ended.
+  let swept = 0;
+  for (let attempt = 0; attempt < 30; attempt += 1) {
+    await goto(`${BASE}/admin/products`);
+    if (!(await waitFor('[data-testid="products-search"]', 30))) break;
+    const leftover = await evaluate(`(() => {
+      const rows = [...document.querySelectorAll('[data-testid^="product-row-"]')];
+      const probe = rows.find((row) => (row.getAttribute('data-testid') ?? '').includes('e2e-probe-'));
+      return probe ? probe.getAttribute('data-testid').replace('product-row-', '') : '';
+    })()`);
+    if (!leftover) break;
+    await goto(`${BASE}/admin/products/${leftover}`);
+    if (!(await waitFor('[data-testid="product-archive"]', 30))) break;
+    await evaluate(click('[data-testid="product-archive"]'));
+    await sleep(1000);
+    await evaluate(click('[data-testid="product-archive"]'));
+    await sleep(2500);
+    swept += 1;
+  }
+  if (swept > 0) console.log(`      swept ${swept} probe product(s) left by an earlier interrupted run`);
+
   // ------------------------------------------------------- 1. create a product
   await goto(`${BASE}/admin/products`);
   await waitFor('[data-testid="products-new"]');
