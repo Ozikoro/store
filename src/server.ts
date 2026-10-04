@@ -2,6 +2,7 @@ import "./lib/error-capture";
 
 import { consumeLastCapturedError } from "./lib/error-capture";
 import { renderErrorPage } from "./lib/error-page";
+import { canonicalRedirect } from "./server/redirect";
 
 type ServerEntry = {
   fetch: (request: Request, env: unknown, ctx: unknown) => Promise<Response> | Response;
@@ -47,6 +48,18 @@ function isH3SwallowedErrorBody(body: string): boolean {
 export default {
   async fetch(request: Request, env: unknown, ctx: unknown) {
     try {
+      // The alias host redirects before anything else runs. Doing it here rather
+      // than in a route means every path — including the webhook and the sitemap
+      // — is covered by one rule, and a crawler that finds store.ozikoro.com is
+      // moved to the canonical host rather than indexing a second copy.
+      const redirect = canonicalRedirect(request);
+      if (redirect) {
+        return new Response(null, {
+          status: 301,
+          headers: { location: redirect, 'cache-control': 'public, max-age=3600' },
+        });
+      }
+
       const handler = await getServerEntry();
       const response = await handler.fetch(request, env, ctx);
       return await normalizeCatastrophicSsrResponse(response);

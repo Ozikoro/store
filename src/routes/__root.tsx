@@ -5,6 +5,7 @@ import appCss from '../styles.css?url';
 import { CartProvider, type CartSnapshot } from '@/store/cart';
 import { getCart, getAdminSession } from '@/server/store';
 import { STORE_ORIGIN } from '@/store/head';
+import { NotFound } from '@/store/not-found';
 
 /**
  * The root route.
@@ -57,6 +58,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       },
     ],
   }),
+  notFoundComponent: () => <NotFound />,
   shellComponent: ({ children }: { children: ReactNode }) => (
     <html lang="en">
       <head>

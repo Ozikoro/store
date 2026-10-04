@@ -2,6 +2,7 @@ import { createFileRoute, Link, notFound } from '@tanstack/react-router';
 import { useState } from 'react';
 import { ArrowLeft, Check, Truck, RotateCcw, Minus, Plus } from 'lucide-react';
 import { StoreLayout, Notice } from '@/store/layout';
+import { NotFound } from '@/store/not-found';
 import { ProductCard } from '@/store/product-card';
 import { storeHead, productStructuredData, breadcrumbStructuredData } from '@/store/head';
 import { useCart } from '@/store/cart';
@@ -35,6 +36,12 @@ export const Route = createFileRoute('/products/$slug')({
     });
   },
   component: ProductPage,
+  notFoundComponent: () => (
+    <NotFound
+      title="We could not find that piece."
+      detail="It may have sold, or the address may be mistyped. Everything currently in the store is on the shop page."
+    />
+  ),
 });
 
 function ProductPage() {

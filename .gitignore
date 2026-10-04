@@ -30,3 +30,9 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Local Cloudflare state and end-to-end artefacts
+.wrangler-state/
+.wrangler-home/
+.e2e/
+.e2e-live/

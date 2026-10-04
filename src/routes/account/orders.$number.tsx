@@ -3,6 +3,7 @@ import { ArrowLeft, Truck } from 'lucide-react';
 import { StoreLayout, PageIntro, Notice } from '@/store/layout';
 import { storeHead } from '@/store/head';
 import { Button } from '@/components/ui/button';
+import { NotFound } from '@/store/not-found';
 import { formatMoney } from '@/lib/money';
 import { ORDER_STATUS_LABELS, type OrderStatus } from '@/lib/order-state';
 import { getOrderForCustomer } from '@/server/account';
@@ -27,6 +28,12 @@ export const Route = createFileRoute('/account/orders/$number')({
       path: '/account',
     }),
   component: OrderDetail,
+  notFoundComponent: () => (
+    <NotFound
+      title="We could not find that order."
+      detail="Check the order number, or sign in with the account the order was placed with. If you checked out as a guest, the confirmation email has the number."
+    />
+  ),
 });
 
 function OrderDetail() {

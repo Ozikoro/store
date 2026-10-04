@@ -1,6 +1,7 @@
 import { createFileRoute, notFound } from '@tanstack/react-router';
 import { StoreLayout, PageIntro } from '@/store/layout';
 import { ProductCard } from '@/store/product-card';
+import { NotFound } from '@/store/not-found';
 import { storeHead, breadcrumbStructuredData } from '@/store/head';
 import { getCollection } from '@/server/catalog';
 
@@ -22,6 +23,12 @@ export const Route = createFileRoute('/collections/$slug')({
     });
   },
   component: Collection,
+  notFoundComponent: () => (
+    <NotFound
+      title="We could not find that collection."
+      detail="It may have been renamed. The current collections are all listed on the collections page."
+    />
+  ),
 });
 
 function Collection() {
