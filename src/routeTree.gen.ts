@@ -69,9 +69,9 @@ const AccountIndexRoute = AccountIndexRouteImport.update({
   getParentRoute: () => rootRouteImport,
 } as any)
 const AccountOrdersRoute = AccountOrdersRouteImport.update({
-  id: '/orders',
-  path: '/orders',
-  getParentRoute: () => AccountRoute,
+  id: '/account/orders',
+  path: '/account/orders',
+  getParentRoute: () => rootRouteImport,
 } as any)
 const CollectionsIndexRoute = CollectionsIndexRouteImport.update({
   id: '/collections/',
@@ -192,6 +192,7 @@ export interface RootRouteChildren {
   SearchRoute: typeof SearchRoute
   ShippingReturnsRoute: typeof ShippingReturnsRoute
   ShopRoute: typeof ShopRoute
+  AccountOrdersRoute: typeof AccountOrdersRoute
   CollectionsSlugRoute: typeof CollectionsSlugRoute
   ProductsSlugRoute: typeof ProductsSlugRoute
   AccountIndexRoute: typeof AccountIndexRoute
@@ -265,10 +266,10 @@ declare module '@tanstack/react-router' {
     }
     '/account/orders': {
       id: '/account/orders'
-      path: '/orders'
+      path: '/account/orders'
       fullPath: '/account/orders'
       preLoaderRoute: typeof AccountOrdersRouteImport
-      parentRoute: typeof AccountRoute
+      parentRoute: typeof rootRouteImport
     }
     '/collections/': {
       id: '/collections/'
@@ -303,6 +304,7 @@ const rootRouteChildren: RootRouteChildren = {
   SearchRoute: SearchRoute,
   ShippingReturnsRoute: ShippingReturnsRoute,
   ShopRoute: ShopRoute,
+  AccountOrdersRoute: AccountOrdersRoute,
   CollectionsSlugRoute: CollectionsSlugRoute,
   ProductsSlugRoute: ProductsSlugRoute,
   AccountIndexRoute: AccountIndexRoute,
