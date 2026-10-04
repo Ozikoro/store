@@ -163,6 +163,30 @@ async function main() {
     check(`${path} is noindex`, /noindex/.test(robots), robots || 'no robots tag');
   }
 
+  // ------------------------------------------------- every admin route refuses
+  //
+  // Signed out, an admin route must refuse — and must refuse WITHOUT a 500. The
+  // SEO screen was the outlier: it let an AuthorizationError escape its loader
+  // and answered 500 on a page whose whole job is to show a form. A refusal is a
+  // normal outcome of asking, not a server fault, and a 500 is also what a
+  // monitoring check reports as "the site is down".
+  for (const path of [
+    '/admin',
+    '/admin/orders',
+    '/admin/products',
+    '/admin/discounts',
+    '/admin/audit',
+    '/admin/permissions',
+    '/admin/seo',
+  ]) {
+    const response = await fetch(`${BASE}${path}`, { redirect: 'manual' });
+    check(
+      `${path} refuses a signed-out visitor without a server error`,
+      response.status >= 200 && response.status < 500,
+      `status ${response.status}`
+    );
+  }
+
   // ---------------------------------------------------------------- sitemap
 
   const sitemap = await (await fetch(`${BASE}/sitemap.xml`)).text();

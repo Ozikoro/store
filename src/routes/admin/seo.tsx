@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { AdminPage, Panel, ErrorNote } from '@/store/admin-layout';
 import { Button } from '@/components/ui/button';
 import { getSeoAdmin, saveSeoSettings, recordSeoSubmission } from '@/server/seo';
+import type { SeoAdminData } from '@/server/seo';
 
 /**
  * SEO, in the admin.
@@ -36,7 +37,25 @@ export const Route = createFileRoute('/admin/seo')({
       noindex: true,
     },
   },
-  loader: () => getSeoAdmin(),
+  /**
+   * The loader catches its own failure.
+   *
+   * `getSeoAdmin` checks `content:write` and throws an AuthorizationError for a
+   * signed-out visitor. Letting that escape the loader produced a 500 on a page
+   * whose whole job is to show a form — every other admin route returns 200 with
+   * its own gate, and this one was the outlier. A refusal is a normal outcome of
+   * asking, not a server fault.
+   */
+  loader: async () => {
+    try {
+      return { data: await getSeoAdmin(), error: null as string | null };
+    } catch (error) {
+      return {
+        data: null,
+        error: error instanceof Error ? error.message : 'The SEO settings could not be loaded.',
+      };
+    }
+  },
   component: SeoScreen,
 });
 
@@ -47,7 +66,18 @@ function groupOf(key: string): 'verify' | 'org' | 'seo' {
 }
 
 function SeoScreen() {
-  const data = Route.useLoaderData();
+  const loaded = Route.useLoaderData();
+  if (!loaded.data) {
+    return (
+      <AdminPage title="SEO" description="Search-engine settings for the Ozikoro Store.">
+        <ErrorNote>{loaded.error ?? 'Not authorised.'}</ErrorNote>
+      </AdminPage>
+    );
+  }
+  return <SeoForm data={loaded.data} />;
+}
+
+function SeoForm({ data }: { data: SeoAdminData }) {
   const [values, setValues] = useState<Record<string, string>>(() =>
     Object.fromEntries(data.settings.map((row) => [row.key, row.value]))
   );
