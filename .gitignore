@@ -38,3 +38,9 @@ dist-ssr
 .e2e-live/
 .e2e-oidc/
 .e2e-checkout/
+.e2e-*/
+.e2e-account/
+.e2e-live/
+.e2e-oidc/
+.e2e-seo/
+.e2e-checkout/
