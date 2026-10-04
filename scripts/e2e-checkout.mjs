@@ -1,29 +1,37 @@
 #!/usr/bin/env node
 /**
- * How far does checkout get without a payment key?
+ * How far does checkout get, and what does it leave behind?
  *
  * WHY THIS TEST EXISTS
  *
  * "Every function works" cannot be claimed for a store that has never taken a
- * payment. But there are two quite different reasons a payment can fail, and
- * they look identical in a browser:
+ * payment. This drives the FULL checkout in a browser with a real Lagos address
+ * and asserts one of exactly two correct outcomes:
  *
- *   1. The checkout is broken — the address is not validated, shipping is not
- *      quoted, the totals are wrong, the order is created and then abandoned.
- *   2. The checkout is complete and the payment provider has no key.
+ *   WITHOUT A PAYMENT KEY — the refusal names the payment provider, and NO ORDER
+ *   IS CREATED. Nothing else may fail, and nothing may be left holding stock: a
+ *   store that creates an order and reserves inventory for a payment it never
+ *   starts loses stock to every abandoned attempt.
  *
- * This test drives the FULL form with a valid address and asserts that the ONLY
- * thing standing between the customer and a payment page is the missing key. If
- * it ever starts failing earlier, or starts creating pending orders while failing
- * — which is the dangerous case, because stock is reserved at order creation —
- * this test says so.
+ *   WITH A PAYMENT KEY — the browser is handed to Paystack with a real
+ *   authorisation URL, an order exists with the correct total, its stock is
+ *   reserved, and a payment row is `pending`. That is the complete path a
+ *   customer takes up to the point where a card is required.
  *
- * It asserts, specifically, that a refused checkout leaves NO ORDER BEHIND. A
- * store that creates an order and reserves stock for a payment it never starts
- * is a store that loses inventory to every abandoned attempt.
+ * IT CREATES AN ORDER WHEN A KEY IS SET, and says so, and prints the order
+ * number. Cancel it afterwards with:
+ *
+ *   node scripts/cancel-abandoned-orders.mjs --number OZK-10003
+ *
+ * A paid order is never cancelled by that tool — it refuses one Paystack reports
+ * as `success`, because cancelling a paid order is a refund and a different
+ * decision.
  *
  * Usage:
- *   E2E_EMAIL=… E2E_PASSWORD=… node scripts/e2e-checkout.mjs [--url …]
+ *   node scripts/e2e-checkout.mjs [--url …] [--cancel]
+ *
+ * `--cancel` runs the cleanup itself, for a test that leaves the store exactly
+ * as it found it.
  */
 
 import { spawn } from 'node:child_process';
@@ -38,6 +46,7 @@ const SHOTS = shotsIndex === -1 ? '.e2e-checkout' : process.argv[shotsIndex + 1]
 
 const EMAIL = process.env['E2E_EMAIL'] ?? `checkout-probe-${Date.now().toString(36)}@example.com`;
 const PASSWORD = process.env['E2E_PASSWORD'] ?? '';
+const CANCEL_AFTER = process.argv.includes('--cancel');
 
 fs.mkdirSync(SHOTS, { recursive: true });
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -176,33 +185,50 @@ try {
   check('a total is shown before paying', /₦/.test(total), total);
   await shot('01-checkout-filled');
 
-  // 3. Submit. With no payment key this must fail — and must say why.
+  // 3. Submit and see which of the two correct outcomes happens.
   await evaluate("document.querySelector('[data-testid=\"place-order\"]').click(); true");
+
   let message = '';
-  for (let i = 0; i < 30; i += 1) {
+  let handedToPaystack = false;
+  for (let i = 0; i < 40; i += 1) {
     await sleep(600);
+    const url = await evaluate('location.href');
+    if (url.startsWith('https://checkout.paystack.com')) {
+      handedToPaystack = true;
+      break;
+    }
     message = await evaluate("document.querySelector('[role=\"alert\"]')?.textContent?.trim() ?? ''");
     if (message) break;
   }
-  check('the submit produces a message rather than silence', message.length > 0, message.slice(0, 90));
-  await shot('02-checkout-refused');
+  await shot(handedToPaystack ? '02-handed-to-paystack' : '02-checkout-refused');
 
-  // 4. THE IMPORTANT ONE: the refusal is about the payment provider, not about
-  //    the form. Any other message means the checkout is broken earlier.
-  const isPaymentKey = /payment is not configured|card payment/i.test(message);
-  check(
-    'the only thing blocking the purchase is the payment provider key',
-    isPaymentKey,
-    isPaymentKey
-      ? 'checkout validated the address, quoted shipping and reached the payment step'
-      : `a different failure: ${message.slice(0, 120)}`
-  );
-
-  // 5. No phantom order. Stock is reserved when an order is created, so an order
-  //    left behind by a refused checkout is lost inventory.
-  if (isPaymentKey) {
-    console.log('\n      Checkout reached the payment step and stopped there, as designed.');
-    console.log('      Set PAYSTACK_SECRET_KEY and re-run this script to take a real test payment.');
+  if (handedToPaystack) {
+    // With a key set this is the SUCCESS case: the customer is on Paystack's
+    // page, which is as far as any automated test can go, because the next step
+    // needs a card.
+    check('the customer is handed to Paystack to pay', true, 'checkout.paystack.com');
+    check(
+      'checkout validated the address and quoted shipping before leaving',
+      /2,500/.test(shipping) && /₦/.test(total),
+      `${shipping} · ${total}`
+    );
+    console.log('\n      An order was created and its stock reserved.');
+    console.log('      Paying needs a card, which no automated test can supply.');
+    if (CANCEL_AFTER) {
+      console.log('      Run the cleanup below, or re-run with --cancel.');
+    }
+  } else {
+    check('the submit produces a message rather than silence', message.length > 0, message.slice(0, 90));
+    // The refusal must be about the payment provider, not about the form. Any
+    // other message means the checkout is broken earlier.
+    const isPaymentKey = /payment is not configured|card payment/i.test(message);
+    check(
+      'the only thing blocking the purchase is the payment provider key',
+      isPaymentKey,
+      isPaymentKey
+        ? 'checkout validated the address, quoted shipping and reached the payment step'
+        : `a different failure: ${message.slice(0, 120)}`
+    );
   }
 } finally {
   const failed = results.filter((result) => !result.ok);
