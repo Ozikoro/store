@@ -139,6 +139,7 @@ async function main() {
 
   let applied = 0;
   let failed = 0;
+  let skipped = 0;
 
   for (const file of files) {
     const sql = fs.readFileSync(path.join(migrationsDir, file), 'utf8');
@@ -156,14 +157,24 @@ async function main() {
         applied += 1;
         console.log(`  ok   ${index + 1}. ${label}`);
       } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        // SQLite has no `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`, so a
+        // re-run of a migration that adds a column reports a duplicate. That is
+        // the desired end state, not a failure — treat it as one, or this script
+        // cries wolf every time it is run twice.
+        if (/duplicate column name|already exists/i.test(message)) {
+          skipped += 1;
+          console.log(`  skip ${index + 1}. ${label} (already applied)`);
+          continue;
+        }
         failed += 1;
         console.error(`  FAIL ${index + 1}. ${label}`);
-        console.error(`       ${error instanceof Error ? error.message : String(error)}`);
+        console.error(`       ${message}`);
       }
     }
   }
 
-  console.log(`\nApplied ${applied} statement(s), ${failed} failure(s).`);
+  console.log(`\nApplied ${applied} statement(s), ${skipped} already applied, ${failed} failure(s).`);
   if (failed > 0) process.exit(1);
 }
 

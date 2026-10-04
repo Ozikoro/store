@@ -95,6 +95,9 @@ export default defineConfig({
           '**/server/admin.ts',
           '**/server/account.ts',
           '**/server/confirmation.ts',
+          // Every export is a createServerFn; the request API is reached by a
+          // dynamic import from inside a handler, so it is stripped with them.
+          '**/server/oidc.ts',
           '**/server/typed.ts',
         ],
       },
@@ -114,6 +117,19 @@ export default defineConfig({
       '/robots.txt': {
         handler: './routes/robots.txt.ts',
       },
+
+      // The identity provider. Raw routes rather than pages, because these must
+      // answer with redirects and JSON before any application code runs, and
+      // because an identity protocol kept out of the UI layer is easier to
+      // reason about than one entangled with it.
+      '/.well-known/openid-configuration': {
+        handler: './routes/oidc/.well-known-openid-configuration.ts',
+      },
+      '/oidc/authorize': { handler: './routes/oidc/authorize.ts' },
+      '/oidc/token': { handler: './routes/oidc/token.ts' },
+      '/oidc/userinfo': { handler: './routes/oidc/userinfo.ts' },
+      '/oidc/jwks.json': { handler: './routes/oidc/jwks.json.ts' },
+      '/oidc/logout': { handler: './routes/oidc/logout.ts' },
     },
     cloudflare,
   } as never,

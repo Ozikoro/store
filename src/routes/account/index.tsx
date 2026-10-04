@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from '@tanstack/react-router';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Package, LogOut } from 'lucide-react';
 import { StoreLayout, PageIntro, Notice } from '@/store/layout';
 import { storeHead } from '@/store/head';
@@ -8,7 +8,28 @@ import { formatMoney } from '@/lib/money';
 import { ORDER_STATUS_LABELS, type OrderStatus } from '@/lib/order-state';
 import { getAccount, signIn, signUp, signOut } from '@/server/store';
 
+/**
+ * Where to go after signing in.
+ *
+ * The identity provider sends a signed-out visitor here with the authorisation
+ * request in `next`, so the journey resumes rather than restarting. Only a
+ * SAME-SITE PATH is accepted, and the check is deliberately strict: a value
+ * beginning `//` is a protocol-relative URL, so accepting it would make this
+ * form an open redirect, and an open redirect on a sign-in page is how a
+ * credential is harvested.
+ */
+function safeNext(value: unknown): string {
+  if (typeof value !== 'string') return '';
+  if (!value.startsWith('/')) return '';
+  if (value.startsWith('//') || value.startsWith('/\\')) return '';
+  return value;
+}
+
 export const Route = createFileRoute('/account/')({
+  validateSearch: (search: Record<string, unknown>): { next?: string } => {
+    const next = safeNext(search['next']);
+    return next ? { next } : {};
+  },
   loader: () => getAccount(),
   head: () =>
     storeHead({
@@ -21,16 +42,17 @@ export const Route = createFileRoute('/account/')({
 
 function Account() {
   const account = Route.useLoaderData();
+  const { next = '' } = Route.useSearch();
   return (
     <StoreLayout>
-      {account.signedIn ? <SignedIn account={account} /> : <SignedOut />}
+      {account.signedIn ? <SignedIn account={account} next={next} /> : <SignedOut next={next} />}
     </StoreLayout>
   );
 }
 
 type AccountData = Awaited<ReturnType<typeof getAccount>>;
 
-function SignedOut() {
+function SignedOut({ next }: { next: string }) {
   const [mode, setMode] = useState<'signin' | 'register'>('signin');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -63,8 +85,9 @@ function SignedOut() {
       }
       setDone(true);
       // A full reload, so the server re-renders the header and the order list
-      // with the new session rather than a stale client cache.
-      window.location.assign('/account');
+      // with the new session rather than a stale client cache — and so a
+      // pending authorisation request resumes.
+      window.location.assign(next || '/account');
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'That did not work. Please try again.');
     } finally {
@@ -98,6 +121,7 @@ function SignedOut() {
         </div>
 
         <form className="grid gap-5" onSubmit={onSubmit} data-testid="account-form">
+          {next && <input type="hidden" name="next" value={next} readOnly />}
           {mode === 'register' && (
             <label className="text-sm grid gap-2">
               Name
@@ -136,8 +160,20 @@ function SignedOut() {
   );
 }
 
-function SignedIn({ account }: { account: Extract<AccountData, { signedIn: true }> }) {
+function SignedIn({
+  account,
+  next,
+}: {
+  account: Extract<AccountData, { signedIn: true }>;
+  next: string;
+}) {
   const [busy, setBusy] = useState(false);
+
+  // Already signed in, and the identity provider is waiting: resume rather than
+  // making the person find their way back to the application.
+  useEffect(() => {
+    if (next) window.location.assign(next);
+  }, [next]);
 
   async function onSignOut() {
     setBusy(true);

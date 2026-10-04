@@ -31,6 +31,7 @@ import { Route as AdminProductsRouteImport } from './routes/admin/products'
 import { Route as CheckoutCallbackRouteImport } from './routes/checkout.callback'
 import { Route as CollectionsIndexRouteImport } from './routes/collections/index'
 import { Route as CollectionsSlugRouteImport } from './routes/collections/$slug'
+import { Route as OidcCallbackRouteImport } from './routes/oidc.callback'
 import { Route as ProductsSlugRouteImport } from './routes/products/$slug'
 import { Route as AccountOrdersNumberRouteImport } from './routes/account/orders.$number'
 import { Route as AdminOrdersNumberRouteImport } from './routes/admin/orders.$number'
@@ -146,6 +147,11 @@ const CollectionsSlugRoute = CollectionsSlugRouteImport.update({
   path: '/collections/$slug',
   getParentRoute: () => rootRouteImport,
 } as any)
+const OidcCallbackRoute = OidcCallbackRouteImport.update({
+  id: '/oidc/callback',
+  path: '/oidc/callback',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ProductsSlugRoute = ProductsSlugRouteImport.update({
   id: '/products/$slug',
   path: '/products/$slug',
@@ -187,6 +193,7 @@ export interface FileRoutesByFullPath {
   '/admin/products': typeof AdminProductsRouteWithChildren
   '/checkout/callback': typeof CheckoutCallbackRoute
   '/collections/$slug': typeof CollectionsSlugRoute
+  '/oidc/callback': typeof OidcCallbackRoute
   '/products/$slug': typeof ProductsSlugRoute
   '/account/': typeof AccountIndexRoute
   '/admin/': typeof AdminIndexRoute
@@ -214,6 +221,7 @@ export interface FileRoutesByTo {
   '/admin/products': typeof AdminProductsRouteWithChildren
   '/checkout/callback': typeof CheckoutCallbackRoute
   '/collections/$slug': typeof CollectionsSlugRoute
+  '/oidc/callback': typeof OidcCallbackRoute
   '/products/$slug': typeof ProductsSlugRoute
   '/account': typeof AccountIndexRoute
   '/admin': typeof AdminIndexRoute
@@ -243,6 +251,7 @@ export interface FileRoutesById {
   '/admin/products': typeof AdminProductsRouteWithChildren
   '/checkout/callback': typeof CheckoutCallbackRoute
   '/collections/$slug': typeof CollectionsSlugRoute
+  '/oidc/callback': typeof OidcCallbackRoute
   '/products/$slug': typeof ProductsSlugRoute
   '/account/': typeof AccountIndexRoute
   '/admin/': typeof AdminIndexRoute
@@ -273,6 +282,7 @@ export interface FileRouteTypes {
     | '/admin/products'
     | '/checkout/callback'
     | '/collections/$slug'
+    | '/oidc/callback'
     | '/products/$slug'
     | '/account/'
     | '/admin/'
@@ -300,6 +310,7 @@ export interface FileRouteTypes {
     | '/admin/products'
     | '/checkout/callback'
     | '/collections/$slug'
+    | '/oidc/callback'
     | '/products/$slug'
     | '/account'
     | '/admin'
@@ -328,6 +339,7 @@ export interface FileRouteTypes {
     | '/admin/products'
     | '/checkout/callback'
     | '/collections/$slug'
+    | '/oidc/callback'
     | '/products/$slug'
     | '/account/'
     | '/admin/'
@@ -351,6 +363,7 @@ export interface RootRouteChildren {
   ShopRoute: typeof ShopRoute
   TermsRoute: typeof TermsRoute
   CollectionsSlugRoute: typeof CollectionsSlugRoute
+  OidcCallbackRoute: typeof OidcCallbackRoute
   ProductsSlugRoute: typeof ProductsSlugRoute
   AccountIndexRoute: typeof AccountIndexRoute
   CollectionsIndexRoute: typeof CollectionsIndexRoute
@@ -513,6 +526,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof CollectionsSlugRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/oidc/callback': {
+      id: '/oidc/callback'
+      path: '/oidc/callback'
+      fullPath: '/oidc/callback'
+      preLoaderRoute: typeof OidcCallbackRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/products/$slug': {
       id: '/products/$slug'
       path: '/products/$slug'
@@ -616,6 +636,7 @@ const rootRouteChildren: RootRouteChildren = {
   ShopRoute: ShopRoute,
   TermsRoute: TermsRoute,
   CollectionsSlugRoute: CollectionsSlugRoute,
+  OidcCallbackRoute: OidcCallbackRoute,
   ProductsSlugRoute: ProductsSlugRoute,
   AccountIndexRoute: AccountIndexRoute,
   CollectionsIndexRoute: CollectionsIndexRoute,

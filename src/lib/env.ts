@@ -27,6 +27,12 @@ export interface Env {
   ADMIN_EMAILS?: string;
   /** Enables an owner-only, read-only diagnostic surface. */
   ADMIN_BOOTSTRAP_TOKEN?: string;
+  /**
+   * The store's own OIDC client id. The store is a client of its own identity
+   * provider; see `src/server/oidc.ts` for why that is not as circular as it
+   * looks.
+   */
+  STORE_OIDC_CLIENT_ID?: string;
 }
 
 /**

@@ -36,3 +36,4 @@ dist-ssr
 .wrangler-home/
 .e2e/
 .e2e-live/
+.e2e-oidc/
