@@ -836,6 +836,76 @@ export const refundOrder = createServerFn({ method: 'POST' })
     }
   });
 
+/**
+ * Ask the gateway again about an unsettled payment.
+ *
+ * WHY THIS HAS TO EXIST
+ *
+ * A payment settles on whichever of two events happens first: the customer's
+ * browser returning to `/checkout/callback`, or Paystack delivering a webhook.
+ * The callback is the common path and verifies with the gateway directly. The
+ * webhook is the safety net for a customer who pays and then closes the tab
+ * before being redirected.
+ *
+ * That safety net is NOT reliably ours to control. Paystack permits ONE webhook
+ * URL per integration, and this account's key is shared with ozituma.com — so
+ * wherever the webhook points, one of the two stores is relying on its customers
+ * coming back. A payment can therefore sit `pending` with the money taken, and
+ * before this existed there was nothing anyone could do from inside the store.
+ *
+ * The action is deliberately NOT "mark this paid". It calls the SAME
+ * `confirmOrderPayment` the callback and the webhook use, which asks Paystack,
+ * compares the amount against what the order says, and only then settles. An
+ * operator cannot conjure a payment, and `advanceOrderStatus` still refuses to
+ * move an order to `paid` by hand for exactly that reason.
+ *
+ * It is idempotent, so pressing it twice is harmless.
+ */
+export const recheckPayment = createServerFn({ method: 'POST' })
+  .validator((input: unknown) => {
+    const data = (input ?? {}) as Record<string, unknown>;
+    return { orderId: str(data['orderId']).trim() };
+  })
+  .handler(async ({ data }) => {
+    const actor = asAuditActor(await requireStaff('orders:read:all'));
+    if (!data.orderId) return { ok: false as const, error: 'No order was chosen.' };
+
+    const { confirmOrderPayment } = await import('../lib/checkout');
+    const { paymentsForOrder } = await import('../lib/orders');
+
+    const rows = await paymentsForOrder(data.orderId);
+    const latest = rows[0];
+    if (!latest) return { ok: false as const, error: 'That order has no payment to check.' };
+
+    if (latest.settled_at && latest.status === 'success') {
+      return { ok: true as const, settled: true, message: 'Already settled — nothing to do.' };
+    }
+
+    try {
+      const result = await confirmOrderPayment(latest.reference);
+      if (!result.ok) {
+        return { ok: true as const, settled: false, message: result.error };
+      }
+      await recordAudit({
+        actor,
+        action: 'order.payment_rechecked',
+        entity: 'order',
+        entityId: data.orderId,
+        before: { status: latest.status },
+        after: { status: 'success', reference: latest.reference, alreadySettled: result.alreadySettled },
+      });
+      return {
+        ok: true as const,
+        settled: true,
+        message: result.alreadySettled
+          ? 'That payment had already settled.'
+          : 'The gateway confirms the payment. The order is now paid.',
+      };
+    } catch (error) {
+      return { ok: false as const, error: describeError(error) };
+    }
+  });
+
 // ---------------------------------------------------------------- discounts
 
 export const listDiscountsAdmin = createServerFn({ method: 'GET' }).handler(async () => {

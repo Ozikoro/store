@@ -7,7 +7,7 @@ import { AdminPage, ErrorNote, Panel, adminButtonClass, adminLinkClass, formatDa
 import { formatMoney } from '@/lib/money';
 import { ORDER_STATUSES, ORDER_STATUS_LABELS } from '@/lib/order-state';
 
-export const Route = createFileRoute('/admin/orders')({
+export const Route = createFileRoute('/admin/orders/')({
   staticData: {
     seo: {
       title: 'Orders',

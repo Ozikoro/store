@@ -6,7 +6,7 @@ import { listProductsAdmin } from '@/server/admin';
 import { AdminPage, ErrorNote, Panel, adminButtonClass, adminLinkClass } from '@/store/admin-layout';
 import { formatMoney } from '@/lib/money';
 
-export const Route = createFileRoute('/admin/products')({
+export const Route = createFileRoute('/admin/products/')({
   staticData: {
     seo: {
       title: 'Products',

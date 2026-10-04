@@ -8,6 +8,7 @@ import {
   fulfilItems,
   getOrderDetail,
   refundOrder,
+  recheckPayment,
   setOrderNote,
   setShipmentStatus,
 } from '@/server/admin';
@@ -63,7 +64,13 @@ function useAdminAction<TVars, TResult extends ActionResult>(
     mutationFn: run,
     onSuccess: (result) => {
       if (result.ok) {
-        setNote({ tone: 'ok', text: 'Saved.' });
+        // Prefer a message the action returned. "Saved." is the right default
+        // for a form, but an action whose whole job is to report what the
+        // gateway said would otherwise throw that answer away — which is what
+        // happened to the payment re-check.
+        const reported = (result as unknown as { message?: unknown }).message;
+        const message = typeof reported === 'string' && reported ? reported : 'Saved.';
+        setNote({ tone: 'ok', text: message });
         void queryClient.invalidateQueries({ queryKey: ['admin', 'order', orderNumber] });
         void queryClient.invalidateQueries({ queryKey: ['admin', 'orders'] });
       } else {
@@ -264,6 +271,7 @@ function OrderDetailPage() {
         ) : (
           <p className="text-sm text-muted-foreground">No payment has been initialised against this order.</p>
         )}
+        <PaymentRecovery orderId={order.id} payments={payments} />
       </Panel>
 
       <div className="grid gap-6 lg:grid-cols-2 mt-6">
@@ -755,5 +763,69 @@ function RefundForm({ order, refundableMinor }: { order: OrderRow; refundableMin
         Refundable now: {formatMoney(refundableMinor, order.currency)}
       </p>
     </form>
+  );
+}
+
+/**
+ * Ask Paystack again about a payment that has not settled.
+ *
+ * WHY THIS IS IN THE UI AND NOT ONLY IN A SCRIPT
+ *
+ * A payment settles either when the customer's browser returns to the callback
+ * or when Paystack delivers a webhook. Paystack allows ONE webhook URL per
+ * integration and this account's key is shared with ozituma.com, so the webhook
+ * for this store cannot be assumed — a payment can sit `pending` with the money
+ * taken, and the person who notices is whoever is looking at the order.
+ *
+ * The button does not mark anything paid. It runs the same gateway check the
+ * callback and the webhook run, which compares the amount against the order
+ * before settling. Pressing it twice is harmless.
+ *
+ * It is hidden when it cannot help: an order with no payment, or one already
+ * settled, has nothing to re-check.
+ */
+function PaymentRecovery({
+  orderId,
+  payments,
+}: {
+  orderId: string;
+  payments: Array<{ status: string; settled_at: string | null }>;
+}) {
+  const { mutation, note } = useAdminAction<{ orderId: string }, ActionResult>(
+    (vars) => recheckPayment({ data: vars }),
+    orderId
+  );
+
+  const latest = payments[0];
+  const canCheck = Boolean(latest) && !(latest?.settled_at && latest?.status === 'success');
+  if (!canCheck) return null;
+
+  return (
+    <div className="mt-6 border-t border-border pt-5" data-testid="payment-recovery">
+      <p className="text-sm font-medium">This payment has not settled</p>
+      <p className="text-xs text-muted-foreground mt-1 max-w-xl leading-relaxed">
+        If the customer paid but closed the page before returning — or the webhook did not arrive —
+        the gateway still knows. This asks it again and settles the order if the payment is real.
+      </p>
+      <div className="flex flex-wrap items-center gap-3 mt-4">
+        <button
+          type="button"
+          className={adminButtonClass}
+          disabled={mutation.isPending}
+          data-testid="recheck-payment"
+          onClick={() => mutation.mutate({ orderId })}
+        >
+          {mutation.isPending ? 'Asking the gateway…' : 'Re-check this payment'}
+        </button>
+        {note ? (
+          <span
+            className={note.tone === 'ok' ? 'text-sm text-muted-foreground' : 'text-sm text-destructive'}
+            data-testid="recheck-payment-note"
+          >
+            {note.text}
+          </span>
+        ) : null}
+      </div>
+    </div>
   );
 }

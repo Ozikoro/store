@@ -182,11 +182,78 @@ try {
   );
   check('the permissions screen lists a staff account', staffRow !== 'none', staffRow);
 
-  // 6. A product can be edited and the change is visible on the storefront.
-  await goto(`${BASE}/admin/products/ozikoro-heritage-tee`);
-  const editorLoaded = await evaluate(`!!document.querySelector('[data-testid^="variant-"], form')`);
-  check('the product editor loads', editorLoaded === true);
-  await shot('04-admin-product-editor');
+  // 6. A RECORD'S OWN PAGE RENDERS — the check that was missing.
+  //
+  // `/admin/orders/$number` and `/admin/products/$slug` are CHILDREN of their
+  // list routes. A parent route that renders a component without an `<Outlet />`
+  // swallows the child, so opening a record showed the LIST again: the URL
+  // changed, the page did not. Both parents did exactly that, and nothing caught
+  // it, because the list is plausible at that URL and the earlier check here only
+  // looked for a form — which the list also has.
+  //
+  // Each of these asserts on something only the DETAIL page has.
+  await goto(`${BASE}/admin/orders`);
+  const firstOrder = await evaluate(
+    `document.querySelector('[data-testid^="order-row-"]')?.getAttribute('data-testid')?.replace('order-row-','') ?? ''`
+  );
+  check('the orders list offers an order to open', firstOrder.length > 0, firstOrder || 'none listed');
+
+  if (firstOrder) {
+    await goto(`${BASE}/admin/orders/${firstOrder}`);
+    // The page loads its detail from a client-side query, so wait for it.
+    let detailReady = false;
+    for (let i = 0; i < 40 && !detailReady; i += 1) {
+      await sleep(500);
+      detailReady = (await evaluate(`!!document.querySelector('[data-testid="panel-payments"]')`)) === true;
+    }
+    const panels = await evaluate(
+      `JSON.stringify([...document.querySelectorAll('[data-testid^="panel-"]')].map((el) => el.getAttribute('data-testid')))`
+    );
+    const text = await evaluate(`document.querySelector('main')?.innerText ?? ''`);
+    check(
+      `the order detail page renders order ${firstOrder}`,
+      detailReady === true && (text ?? '').includes(firstOrder),
+      detailReady ? 'panels rendered' : 'the detail never loaded'
+    );
+    check(
+      'the order detail page does not show the orders list',
+      !(text ?? '').includes('Every order, newest first'),
+      (text ?? '').slice(0, 60).replace(/\n/g, ' ')
+    );
+    check(
+      'the order detail page shows its panels',
+      /panel-payments/.test(panels ?? '') && /panel-items/.test(panels ?? ''),
+      (panels ?? '').slice(0, 120)
+    );
+    await shot('04-admin-order-detail');
+  }
+
+  await goto(`${BASE}/admin/products`);
+  const firstProduct = await evaluate(
+    `document.querySelector('[data-testid^="product-row-"]')?.getAttribute('data-testid')?.replace('product-row-','') ?? ''`
+  );
+  check('the products list offers a product to open', firstProduct.length > 0, firstProduct || 'none listed');
+
+  if (firstProduct) {
+    await goto(`${BASE}/admin/products/${firstProduct}`);
+    let editorReady = false;
+    for (let i = 0; i < 40 && !editorReady; i += 1) {
+      await sleep(500);
+      editorReady = (await evaluate(`!!document.querySelector('[data-testid="product-category"]')`)) === true;
+    }
+    const text = await evaluate(`document.querySelector('main')?.innerText ?? ''`);
+    check(
+      `the product editor renders ${firstProduct}`,
+      editorReady === true,
+      editorReady ? 'the editor is up' : 'the editor never loaded'
+    );
+    check(
+      'the product editor does not show the products list',
+      !(text ?? '').includes('every product'),
+      (text ?? '').slice(0, 60).replace(/\n/g, ' ')
+    );
+    await shot('04-admin-product-editor');
+  }
 
   // 7. The audit log records the work done so far.
   await goto(`${BASE}/admin/audit`);
