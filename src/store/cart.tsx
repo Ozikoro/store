@@ -1,14 +1,165 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
-import { products } from './catalog';
-type CartItem = { slug: string; variant: string; quantity: number };
-type CartContextValue = { items: CartItem[]; count: number; add: (slug: string, variant: string) => void; update: (slug: string, variant: string, quantity: number) => void; clear: () => void };
-const CartContext = createContext<CartContextValue | null>(null);
-export function CartProvider({ children }: { children: ReactNode }) {
-  const [items, setItems] = useState<CartItem[]>([]);
-  useEffect(() => { try { const saved = JSON.parse(localStorage.getItem('ozikoro-preview-cart') || '[]'); if (Array.isArray(saved)) setItems(saved.filter((item) => products.some((p) => p.slug === item.slug))); } catch { /* ignore invalid preview data */ } }, []);
-  useEffect(() => { localStorage.setItem('ozikoro-preview-cart', JSON.stringify(items)); }, [items]);
-  const add = (slug: string, variant: string) => setItems((old) => { const existing = old.find((i) => i.slug === slug && i.variant === variant); return existing ? old.map((i) => i === existing ? { ...i, quantity: i.quantity + 1 } : i) : [...old, { slug, variant, quantity: 1 }]; });
-  const update = (slug: string, variant: string, quantity: number) => setItems((old) => quantity <= 0 ? old.filter((i) => i.slug !== slug || i.variant !== variant) : old.map((i) => i.slug === slug && i.variant === variant ? { ...i, quantity } : i));
-  return <CartContext.Provider value={{ items, count: items.reduce((sum, i) => sum + i.quantity, 0), add, update, clear: () => setItems([]) }}>{children}</CartContext.Provider>;
+/**
+ * The cart, as the browser sees it.
+ *
+ * There is no client-side source of truth here. Every mutation goes to the
+ * server and the server's answer replaces what is displayed — including the
+ * count in the header badge and every total. That is the point: the browser
+ * never computes a price it will later be charged.
+ *
+ * The initial state comes from the route loader (server-rendered), so the badge
+ * is correct in the first paint and there is no flash of an empty cart.
+ */
+
+import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react';
+import { useRouter } from '@tanstack/react-router';
+import {
+  getCart,
+  addToCart as addToCartFn,
+  setCartQuantity as setCartQuantityFn,
+  removeFromCart as removeFromCartFn,
+  emptyCart as emptyCartFn,
+} from '@/server/store';
+import type { CartLine } from '@/lib/cart';
+import type { Totals } from '@/lib/pricing';
+
+export interface CartSnapshot {
+  count: number;
+  lines: CartLine[];
+  totals: Totals;
+  subtotalMinor: number;
+  currency: string;
 }
-export function useCart() { const cart = useContext(CartContext); if (!cart) throw new Error('CartProvider missing'); return cart; }
+
+const EMPTY_TOTALS: Totals = {
+  subtotalMinor: 0,
+  discountMinor: 0,
+  shippingMinor: 0,
+  taxMinor: 0,
+  totalMinor: 0,
+  itemCount: 0,
+  freeShipping: false,
+};
+
+export const EMPTY_CART: CartSnapshot = {
+  count: 0,
+  lines: [],
+  subtotalMinor: 0,
+  totals: EMPTY_TOTALS,
+  currency: 'NGN',
+};
+
+interface CartContextValue {
+  cart: CartSnapshot;
+  /** True while a mutation is in flight, so controls can be disabled. */
+  busy: boolean;
+  /** The last message the server refused with, for an inline notice. */
+  notice: string | null;
+  add: (variantId: string, quantity?: number) => Promise<boolean>;
+  setQuantity: (itemId: string, quantity: number) => Promise<void>;
+  remove: (itemId: string) => Promise<void>;
+  clear: () => Promise<void>;
+  refresh: () => Promise<void>;
+  dismissNotice: () => void;
+}
+
+const CartContext = createContext<CartContextValue | null>(null);
+
+export function CartProvider({ initialCart, children }: { initialCart?: CartSnapshot | undefined; children: ReactNode }) {
+  const router = useRouter();
+  const [cart, setCart] = useState<CartSnapshot>(initialCart ?? EMPTY_CART);
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  const refresh = useCallback(async () => {
+    const next = await getCart();
+    setCart(next as CartSnapshot);
+    // Tell the router its loader data is stale, so a page reading the loader
+    // re-renders with the same numbers the header is now showing.
+    await router.invalidate();
+  }, [router]);
+
+  const add = useCallback(
+    async (variantId: string, quantity = 1): Promise<boolean> => {
+      setBusy(true);
+      setNotice(null);
+      try {
+        const result = await addToCartFn({ data: { variantId, quantity } });
+        if (!result.ok) {
+          setNotice(result.message ?? 'That item could not be added.');
+          return false;
+        }
+        await refresh();
+        return true;
+      } catch (error) {
+        setNotice(error instanceof Error ? error.message : 'That item could not be added.');
+        return false;
+      } finally {
+        setBusy(false);
+      }
+    },
+    [refresh]
+  );
+
+  const setQuantity = useCallback(
+    async (itemId: string, quantity: number) => {
+      setBusy(true);
+      setNotice(null);
+      try {
+        const result = await setCartQuantityFn({ data: { itemId, quantity } });
+        if (!result.ok) setNotice(result.message ?? 'That quantity is not available.');
+        await refresh();
+      } catch (error) {
+        setNotice(error instanceof Error ? error.message : 'Could not update the quantity.');
+      } finally {
+        setBusy(false);
+      }
+    },
+    [refresh]
+  );
+
+  const remove = useCallback(
+    async (itemId: string) => {
+      setBusy(true);
+      try {
+        await removeFromCartFn({ data: { itemId } });
+        await refresh();
+      } finally {
+        setBusy(false);
+      }
+    },
+    [refresh]
+  );
+
+  const clear = useCallback(async () => {
+    setBusy(true);
+    try {
+      await emptyCartFn();
+      await refresh();
+    } finally {
+      setBusy(false);
+    }
+  }, [refresh]);
+
+  const value = useMemo<CartContextValue>(
+    () => ({
+      cart,
+      busy,
+      notice,
+      add,
+      setQuantity,
+      remove,
+      clear,
+      refresh,
+      dismissNotice: () => setNotice(null),
+    }),
+    [cart, busy, notice, add, setQuantity, remove, clear, refresh]
+  );
+
+  return <CartContext.Provider value={value}>{children}</CartContext.Provider>;
+}
+
+export function useCart(): CartContextValue {
+  const context = useContext(CartContext);
+  if (!context) throw new Error('useCart must be used inside CartProvider');
+  return context;
+}

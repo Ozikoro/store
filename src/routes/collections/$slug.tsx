@@ -1,7 +1,56 @@
 import { createFileRoute, notFound } from '@tanstack/react-router';
 import { StoreLayout, PageIntro } from '@/store/layout';
-import { categories, products } from '@/store/catalog';
 import { ProductCard } from '@/store/product-card';
-import { storeHead } from '@/store/head';
-export const Route = createFileRoute('/collections/$slug')({ loader: ({ params }) => { const category = categories.find((c) => c.slug === params.slug); if (!category) throw notFound(); return category; }, head: ({ loaderData }) => storeHead(loaderData?.title || 'Collection', loaderData?.description || 'Explore Ozikoro collections.'), component: Collection });
-function Collection() { const category = Route.useLoaderData(); return <StoreLayout><PageIntro eyebrow="Collection" title={category.title} description={category.description}/><div className="site-container border-t border-border pt-10 grid grid-cols-2 lg:grid-cols-3 gap-x-4 gap-y-12 md:gap-x-6">{products.filter((p) => p.category === category.title).map((p) => <ProductCard key={p.slug} product={p}/>)}</div></StoreLayout>; }
+import { storeHead, breadcrumbStructuredData } from '@/store/head';
+import { getCollection } from '@/server/catalog';
+
+export const Route = createFileRoute('/collections/$slug')({
+  loader: async ({ params }) => {
+    const result = await getCollection({ data: { slug: params.slug } });
+    if (!result.found) throw notFound();
+    return result;
+  },
+  head: ({ loaderData }) => {
+    if (!loaderData?.found) {
+      return storeHead({ title: 'Collection not found', description: 'That collection does not exist.', path: '/collections' });
+    }
+    return storeHead({
+      title: loaderData.collection.title,
+      description: loaderData.collection.description || `Shop the ${loaderData.collection.title} collection.`,
+      path: `/collections/${loaderData.collection.slug}`,
+      image: loaderData.collection.image_url,
+    });
+  },
+  component: Collection,
+});
+
+function Collection() {
+  const { collection, products } = Route.useLoaderData();
+
+  return (
+    <StoreLayout>
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{
+          __html: breadcrumbStructuredData([
+            { name: 'Shop', path: '/shop' },
+            { name: collection.title, path: `/collections/${collection.slug}` },
+          ]),
+        }}
+      />
+      <PageIntro eyebrow="Collection" title={collection.title} description={collection.description} />
+
+      {products.length > 0 ? (
+        <div className="site-container border-t border-border pt-10 grid grid-cols-2 lg:grid-cols-3 gap-x-4 gap-y-12 md:gap-x-6">
+          {products.map((product) => (
+            <ProductCard key={product.slug} product={product} />
+          ))}
+        </div>
+      ) : (
+        <p className="site-container border-t border-border pt-10 text-muted-foreground">
+          Nothing in this collection yet.
+        </p>
+      )}
+    </StoreLayout>
+  );
+}
