@@ -1,7 +1,6 @@
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { CheckCircle2, Clock, XCircle } from 'lucide-react';
 import { StoreLayout } from '@/store/layout';
-import { storeHead } from '@/store/head';
 import { Button } from '@/components/ui/button';
 import { formatMoney } from '@/lib/money';
 import { getPaymentConfirmation } from '@/server/confirmation';
@@ -15,6 +14,14 @@ import { getPaymentConfirmation } from '@/server/confirmation';
  * drawn from the gateway's answer, not from the query string.
  */
 export const Route = createFileRoute('/checkout/callback')({
+  staticData: {
+    seo: {
+      title: 'Order confirmation',
+      description: 'Your Ozikoro Store order confirmation.',
+      kind: 'private',
+      noindex: true,
+    },
+  },
   validateSearch: (search: Record<string, unknown>) => ({
     reference: typeof search['reference'] === 'string' ? (search['reference'] as string) : '',
     trxref: typeof search['trxref'] === 'string' ? (search['trxref'] as string) : '',
@@ -24,12 +31,6 @@ export const Route = createFileRoute('/checkout/callback')({
     if (!deps.reference) return { state: 'missing' as const };
     return getPaymentConfirmation({ data: { reference: deps.reference } });
   },
-  head: () =>
-    storeHead({
-      title: 'Order confirmation',
-      description: 'Your Ozikoro Store order confirmation.',
-      path: '/checkout/callback',
-    }),
   component: Confirmation,
 });
 

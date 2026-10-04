@@ -2,12 +2,18 @@ import { createFileRoute, Link, useNavigate } from '@tanstack/react-router';
 import { useEffect, useState } from 'react';
 import { ArrowLeft, ArrowRight, LockKeyhole, Loader2 } from 'lucide-react';
 import { StoreLayout, Notice } from '@/store/layout';
-import { storeHead } from '@/store/head';
 import { Button } from '@/components/ui/button';
 import { formatMoney } from '@/lib/money';
 import { getCheckoutPreview, submitOrder, getAccount } from '@/server/store';
 
 export const Route = createFileRoute('/checkout')({
+  staticData: {
+    seo: {
+      title: 'Checkout',
+      description: 'Delivery details and secure card payment for your Ozikoro Store order.',
+      kind: 'private',
+    },
+  },
   loader: async () => {
     const [preview, account] = await Promise.all([
       getCheckoutPreview({ data: {} }),
@@ -15,12 +21,6 @@ export const Route = createFileRoute('/checkout')({
     ]);
     return { preview, account };
   },
-  head: () =>
-    storeHead({
-      title: 'Checkout',
-      description: 'Delivery details and secure card payment for your Ozikoro Store order.',
-      path: '/checkout',
-    }),
   component: Checkout,
 });
 

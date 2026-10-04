@@ -2,19 +2,18 @@ import { createFileRoute } from '@tanstack/react-router';
 import { useMemo, useState } from 'react';
 import { StoreLayout, PageIntro } from '@/store/layout';
 import { ProductCard } from '@/store/product-card';
-import { storeHead } from '@/store/head';
 import { Button } from '@/components/ui/button';
 import { getShop } from '@/server/catalog';
 
 export const Route = createFileRoute('/shop')({
-  loader: () => getShop(),
-  head: () =>
-    storeHead({
+  staticData: {
+    seo: {
       title: 'Shop all',
-      description:
-        'Browse every piece in the Ozikoro Store: apparel, books and publications, prints and hand-carved artefacts.',
-      path: '/shop',
-    }),
+      description: 'Browse every piece in the Ozikoro Store: apparel, books and publications, prints and hand-carved artefacts.',
+      kind: 'collection',
+    },
+  },
+  loader: () => getShop(),
   component: Shop,
 });
 

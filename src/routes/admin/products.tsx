@@ -4,16 +4,17 @@ import { useState } from 'react';
 
 import { listProductsAdmin } from '@/server/admin';
 import { AdminPage, ErrorNote, Panel, adminButtonClass, adminLinkClass } from '@/store/admin-layout';
-import { storeHead } from '@/store/head';
 import { formatMoney } from '@/lib/money';
 
 export const Route = createFileRoute('/admin/products')({
-  head: () =>
-    storeHead({
-      title: 'Admin products',
-      description: 'Every product, drafts and archives included.',
-      path: '/admin/products',
-    }),
+  staticData: {
+    seo: {
+      title: 'Products',
+      description: 'The Ozikoro Store catalogue.',
+      kind: 'private',
+      noindex: true,
+    },
+  },
   component: ProductsAdmin,
 });
 

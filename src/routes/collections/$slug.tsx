@@ -2,7 +2,7 @@ import { createFileRoute, notFound } from '@tanstack/react-router';
 import { StoreLayout, PageIntro } from '@/store/layout';
 import { ProductCard } from '@/store/product-card';
 import { NotFound } from '@/store/not-found';
-import { storeHead, breadcrumbStructuredData } from '@/store/head';
+import { composeRouteHead } from '@/store/head-compose';
 import { getCollection } from '@/server/catalog';
 
 export const Route = createFileRoute('/collections/$slug')({
@@ -11,17 +11,31 @@ export const Route = createFileRoute('/collections/$slug')({
     if (!result.found) throw notFound();
     return result;
   },
-  head: ({ loaderData }) => {
-    if (!loaderData?.found) {
-      return storeHead({ title: 'Collection not found', description: 'That collection does not exist.', path: '/collections' });
-    }
-    return storeHead({
-      title: loaderData.collection.title,
-      description: loaderData.collection.description || `Shop the ${loaderData.collection.title} collection.`,
-      path: `/collections/${loaderData.collection.slug}`,
-      image: loaderData.collection.image_url,
-    });
-  },
+  // The collection's name and image exist only at request time, so this route
+  // composes its own head. The canonical URL, the robots directive, the
+  // verification tags and the Organization and WebSite nodes still come from the
+  // shared composition — only the page's own values are supplied here.
+  staticData: { ownsHead: true },
+  head: (ctx) =>
+    composeRouteHead({
+      ctx,
+      kind: 'collection',
+      fallbackTitle: 'Collection',
+      route: ctx.loaderData?.found
+        ? {
+            title: ctx.loaderData.collection.title,
+            description:
+              ctx.loaderData.collection.description ||
+              `Shop the ${ctx.loaderData.collection.title} collection.`,
+            image: ctx.loaderData.collection.image_url,
+            imageAlt: ctx.loaderData.collection.title,
+            trail: [
+              { name: 'Shop', path: '/shop' },
+              { name: ctx.loaderData.collection.title, path: `/collections/${ctx.loaderData.collection.slug}` },
+            ],
+          }
+        : { title: 'Collection not found', noindex: true },
+    }),
   component: Collection,
   notFoundComponent: () => (
     <NotFound
@@ -36,15 +50,6 @@ function Collection() {
 
   return (
     <StoreLayout>
-      <script
-        type="application/ld+json"
-        dangerouslySetInnerHTML={{
-          __html: breadcrumbStructuredData([
-            { name: 'Shop', path: '/shop' },
-            { name: collection.title, path: `/collections/${collection.slug}` },
-          ]),
-        }}
-      />
       <PageIntro eyebrow="Collection" title={collection.title} description={collection.description} />
 
       {products.length > 0 ? (

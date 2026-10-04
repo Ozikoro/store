@@ -1,14 +1,14 @@
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { PolicyPage } from '@/store/policy-page';
-import { storeHead } from '@/store/head';
 
 export const Route = createFileRoute('/refunds')({
-  head: () =>
-    storeHead({
+  staticData: {
+    seo: {
       title: 'Refunds',
       description: 'How refunds and returns work at the Ozikoro Store, including made-to-order pieces.',
-      path: '/refunds',
-    }),
+      kind: 'article',
+    },
+  },
   component: Refunds,
 });
 

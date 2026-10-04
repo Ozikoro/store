@@ -1,22 +1,22 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { StoreLayout, PageIntro } from '@/store/layout';
 import { ProductCard } from '@/store/product-card';
-import { storeHead } from '@/store/head';
 import { searchProducts } from '@/server/catalog';
 import { SearchForm } from '@/store/search-form';
 
 export const Route = createFileRoute('/search')({
+  staticData: {
+    seo: {
+      title: 'Search',
+      description: 'Find books, apparel, prints and artefacts in the Ozikoro Store.',
+      kind: 'search',
+    },
+  },
   validateSearch: (search: Record<string, unknown>) => ({
     q: typeof search['q'] === 'string' ? search['q'] : '',
   }),
   loaderDeps: ({ search }) => ({ q: search.q }),
   loader: ({ deps }) => searchProducts({ data: { query: deps.q } }),
-  head: () =>
-    storeHead({
-      title: 'Search',
-      description: 'Find books, apparel, prints and artefacts in the Ozikoro Store.',
-      path: '/search',
-    }),
   component: SearchPage,
 });
 

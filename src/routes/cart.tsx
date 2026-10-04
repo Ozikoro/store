@@ -1,18 +1,18 @@
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { ArrowRight, Minus, Plus, Trash2 } from 'lucide-react';
 import { StoreLayout, PageIntro, Notice } from '@/store/layout';
-import { storeHead } from '@/store/head';
 import { useCart } from '@/store/cart';
 import { Button } from '@/components/ui/button';
 import { formatMoney } from '@/lib/money';
 
 export const Route = createFileRoute('/cart')({
-  head: () =>
-    storeHead({
+  staticData: {
+    seo: {
       title: 'Your cart',
       description: 'Review your selections from the Ozikoro Store.',
-      path: '/cart',
-    }),
+      kind: 'private',
+    },
+  },
   component: Cart,
 });
 

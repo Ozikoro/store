@@ -1,14 +1,14 @@
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { PolicyPage } from '@/store/policy-page';
-import { storeHead } from '@/store/head';
 
 export const Route = createFileRoute('/terms')({
-  head: () =>
-    storeHead({
+  staticData: {
+    seo: {
       title: 'Terms of sale',
       description: 'The terms on which the Ozikoro Store sells goods, including prices, payment and delivery.',
-      path: '/terms',
-    }),
+      kind: 'article',
+    },
+  },
   component: Terms,
 });
 

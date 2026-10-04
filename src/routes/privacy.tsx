@@ -1,14 +1,14 @@
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { PolicyPage } from '@/store/policy-page';
-import { storeHead } from '@/store/head';
 
 export const Route = createFileRoute('/privacy')({
-  head: () =>
-    storeHead({
+  staticData: {
+    seo: {
       title: 'Privacy',
       description: 'What the Ozikoro Store collects, why, how long it is kept, and how to have it removed.',
-      path: '/privacy',
-    }),
+      kind: 'article',
+    },
+  },
   component: Privacy,
 });
 

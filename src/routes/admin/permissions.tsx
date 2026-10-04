@@ -14,6 +14,14 @@ import { listStaffAccounts, setStaffRole } from '@/server/admin';
  * takes effect at the next sign-in rather than up to thirty days later.
  */
 export const Route = createFileRoute('/admin/permissions')({
+  staticData: {
+    seo: {
+      title: 'Permissions',
+      description: 'Who can do what in the Ozikoro Store.',
+      kind: 'private',
+      noindex: true,
+    },
+  },
   loader: async () => {
     try {
       const staff = await listStaffAccounts();

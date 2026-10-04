@@ -1,17 +1,17 @@
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { ArrowUpRight } from 'lucide-react';
 import { StoreLayout, PageIntro } from '@/store/layout';
-import { storeHead } from '@/store/head';
 import { getCollections } from '@/server/catalog';
 
 export const Route = createFileRoute('/collections/')({
-  loader: () => getCollections(),
-  head: () =>
-    storeHead({
+  staticData: {
+    seo: {
       title: 'Collections',
       description: 'Explore the Ozikoro Store collections: apparel, books and publications, prints, and artefacts.',
-      path: '/collections',
-    }),
+      kind: 'collection',
+    },
+  },
+  loader: () => getCollections(),
   component: Collections,
 });
 

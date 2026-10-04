@@ -21,7 +21,6 @@ import {
   adminQuietButtonClass,
   formatDateTime,
 } from '@/store/admin-layout';
-import { storeHead } from '@/store/head';
 import { formatMoney } from '@/lib/money';
 import {
   ORDER_STATUSES,
@@ -34,12 +33,14 @@ import {
 } from '@/lib/order-state';
 
 export const Route = createFileRoute('/admin/orders/$number')({
-  head: ({ params }) =>
-    storeHead({
-      title: `Order ${params.number}`,
-      description: 'One order, from payment to parcel.',
-      path: `/admin/orders/${params.number}`,
-    }),
+  staticData: {
+    seo: {
+      title: 'Order',
+      description: 'An Ozikoro Store order.',
+      kind: 'private',
+      noindex: true,
+    },
+  },
   component: OrderDetailPage,
 });
 

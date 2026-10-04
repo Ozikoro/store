@@ -4,17 +4,18 @@ import { useState } from 'react';
 
 import { getDashboard } from '@/server/admin';
 import { AdminPage, ErrorNote, Panel, StatCard, adminLinkClass, formatDateTime } from '@/store/admin-layout';
-import { storeHead } from '@/store/head';
 import { formatMoney } from '@/lib/money';
 import { ORDER_STATUS_LABELS } from '@/lib/order-state';
 
 export const Route = createFileRoute('/admin/')({
-  head: () =>
-    storeHead({
-      title: 'Admin dashboard',
-      description: 'Revenue, orders and stock at a glance.',
-      path: '/admin',
-    }),
+  staticData: {
+    seo: {
+      title: 'Dashboard',
+      description: 'Ozikoro Store administration.',
+      kind: 'private',
+      noindex: true,
+    },
+  },
   component: Dashboard,
 });
 

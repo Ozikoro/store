@@ -2,7 +2,6 @@ import { createFileRoute, Link } from '@tanstack/react-router';
 import { useEffect, useState } from 'react';
 import { Loader2, XCircle, CheckCircle2 } from 'lucide-react';
 import { StoreLayout } from '@/store/layout';
-import { storeHead } from '@/store/head';
 import { Button } from '@/components/ui/button';
 import { completeOidcSignIn } from '@/server/oidc';
 
@@ -20,6 +19,13 @@ import { completeOidcSignIn } from '@/server/oidc';
  * except the code, and the code is worthless without the verifier.
  */
 export const Route = createFileRoute('/oidc/callback')({
+  staticData: {
+    seo: {
+      title: 'Signing in',
+      description: 'Completing a sign-in to Ozikoro.',
+      kind: 'private',
+    },
+  },
   validateSearch: (search: Record<string, unknown>) => ({
     code: typeof search['code'] === 'string' ? search['code'] : '',
     state: typeof search['state'] === 'string' ? search['state'] : '',
@@ -27,12 +33,6 @@ export const Route = createFileRoute('/oidc/callback')({
     error_description:
       typeof search['error_description'] === 'string' ? search['error_description'] : '',
   }),
-  head: () =>
-    storeHead({
-      title: 'Signing in',
-      description: 'Completing a sign-in to Ozikoro.',
-      path: '/',
-    }),
   component: OidcCallback,
 });
 

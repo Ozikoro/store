@@ -28,6 +28,7 @@ import { Route as AdminDiscountsRouteImport } from './routes/admin/discounts'
 import { Route as AdminOrdersRouteImport } from './routes/admin/orders'
 import { Route as AdminPermissionsRouteImport } from './routes/admin/permissions'
 import { Route as AdminProductsRouteImport } from './routes/admin/products'
+import { Route as AdminSeoRouteImport } from './routes/admin/seo'
 import { Route as CheckoutCallbackRouteImport } from './routes/checkout.callback'
 import { Route as CollectionsIndexRouteImport } from './routes/collections/index'
 import { Route as CollectionsSlugRouteImport } from './routes/collections/$slug'
@@ -132,6 +133,11 @@ const AdminProductsRoute = AdminProductsRouteImport.update({
   path: '/products',
   getParentRoute: () => AdminRouteRoute,
 } as any)
+const AdminSeoRoute = AdminSeoRouteImport.update({
+  id: '/seo',
+  path: '/seo',
+  getParentRoute: () => AdminRouteRoute,
+} as any)
 const CheckoutCallbackRoute = CheckoutCallbackRouteImport.update({
   id: '/callback',
   path: '/callback',
@@ -191,6 +197,7 @@ export interface FileRoutesByFullPath {
   '/admin/orders': typeof AdminOrdersRouteWithChildren
   '/admin/permissions': typeof AdminPermissionsRoute
   '/admin/products': typeof AdminProductsRouteWithChildren
+  '/admin/seo': typeof AdminSeoRoute
   '/checkout/callback': typeof CheckoutCallbackRoute
   '/collections/$slug': typeof CollectionsSlugRoute
   '/oidc/callback': typeof OidcCallbackRoute
@@ -219,6 +226,7 @@ export interface FileRoutesByTo {
   '/admin/orders': typeof AdminOrdersRouteWithChildren
   '/admin/permissions': typeof AdminPermissionsRoute
   '/admin/products': typeof AdminProductsRouteWithChildren
+  '/admin/seo': typeof AdminSeoRoute
   '/checkout/callback': typeof CheckoutCallbackRoute
   '/collections/$slug': typeof CollectionsSlugRoute
   '/oidc/callback': typeof OidcCallbackRoute
@@ -249,6 +257,7 @@ export interface FileRoutesById {
   '/admin/orders': typeof AdminOrdersRouteWithChildren
   '/admin/permissions': typeof AdminPermissionsRoute
   '/admin/products': typeof AdminProductsRouteWithChildren
+  '/admin/seo': typeof AdminSeoRoute
   '/checkout/callback': typeof CheckoutCallbackRoute
   '/collections/$slug': typeof CollectionsSlugRoute
   '/oidc/callback': typeof OidcCallbackRoute
@@ -280,6 +289,7 @@ export interface FileRouteTypes {
     | '/admin/orders'
     | '/admin/permissions'
     | '/admin/products'
+    | '/admin/seo'
     | '/checkout/callback'
     | '/collections/$slug'
     | '/oidc/callback'
@@ -308,6 +318,7 @@ export interface FileRouteTypes {
     | '/admin/orders'
     | '/admin/permissions'
     | '/admin/products'
+    | '/admin/seo'
     | '/checkout/callback'
     | '/collections/$slug'
     | '/oidc/callback'
@@ -337,6 +348,7 @@ export interface FileRouteTypes {
     | '/admin/orders'
     | '/admin/permissions'
     | '/admin/products'
+    | '/admin/seo'
     | '/checkout/callback'
     | '/collections/$slug'
     | '/oidc/callback'
@@ -505,6 +517,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminProductsRouteImport
       parentRoute: typeof AdminRouteRoute
     }
+    '/admin/seo': {
+      id: '/admin/seo'
+      path: '/seo'
+      fullPath: '/admin/seo'
+      preLoaderRoute: typeof AdminSeoRouteImport
+      parentRoute: typeof AdminRouteRoute
+    }
     '/checkout/callback': {
       id: '/checkout/callback'
       path: '/callback'
@@ -594,6 +613,7 @@ interface AdminRouteRouteChildren {
   AdminOrdersRoute: typeof AdminOrdersRouteWithChildren
   AdminPermissionsRoute: typeof AdminPermissionsRoute
   AdminProductsRoute: typeof AdminProductsRouteWithChildren
+  AdminSeoRoute: typeof AdminSeoRoute
   AdminIndexRoute: typeof AdminIndexRoute
 }
 
@@ -603,6 +623,7 @@ const AdminRouteRouteChildren: AdminRouteRouteChildren = {
   AdminOrdersRoute: AdminOrdersRouteWithChildren,
   AdminPermissionsRoute: AdminPermissionsRoute,
   AdminProductsRoute: AdminProductsRouteWithChildren,
+  AdminSeoRoute: AdminSeoRoute,
   AdminIndexRoute: AdminIndexRoute,
 }
 

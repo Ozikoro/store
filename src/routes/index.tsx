@@ -2,19 +2,18 @@ import { createFileRoute, Link } from '@tanstack/react-router';
 import { ArrowRight, ArrowUpRight } from 'lucide-react';
 import { StoreLayout } from '@/store/layout';
 import { ProductCard } from '@/store/product-card';
-import { storeHead, organisationStructuredData } from '@/store/head';
 import { Button } from '@/components/ui/button';
 import { getStorefront } from '@/server/catalog';
 
 export const Route = createFileRoute('/')({
-  loader: () => getStorefront(),
-  head: () =>
-    storeHead({
+  staticData: {
+    seo: {
       title: 'Ozikoro Store — culture, made tangible',
-      description:
-        'Thoughtfully made apparel, books, prints and artefacts from Ozikoro. Naira checkout, shipping across Nigeria, made-to-order artwork.',
-      path: '/',
-    }),
+      description: 'Thoughtfully made apparel, books, prints and artefacts from Ozikoro. Naira checkout, shipping across Nigeria, made-to-order artwork.',
+      kind: 'website',
+    },
+  },
+  loader: () => getStorefront(),
   component: Home,
 });
 
@@ -23,8 +22,6 @@ function Home() {
 
   return (
     <StoreLayout>
-      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: organisationStructuredData() }} />
-
       <section className="relative min-h-[490px] md:min-h-[630px] flex items-center overflow-hidden bg-ink">
         <img
           src="/media/store-hero.jpg"

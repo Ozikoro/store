@@ -2,7 +2,6 @@ import { createFileRoute, Link } from '@tanstack/react-router';
 import { useEffect, useState } from 'react';
 import { Package, LogOut } from 'lucide-react';
 import { StoreLayout, PageIntro, Notice } from '@/store/layout';
-import { storeHead } from '@/store/head';
 import { Button } from '@/components/ui/button';
 import { formatMoney } from '@/lib/money';
 import { ORDER_STATUS_LABELS, type OrderStatus } from '@/lib/order-state';
@@ -26,17 +25,18 @@ function safeNext(value: unknown): string {
 }
 
 export const Route = createFileRoute('/account/')({
+  staticData: {
+    seo: {
+      title: 'Account',
+      description: 'Your Ozikoro Store account: order history, delivery details and password.',
+      kind: 'private',
+    },
+  },
   validateSearch: (search: Record<string, unknown>): { next?: string } => {
     const next = safeNext(search['next']);
     return next ? { next } : {};
   },
   loader: () => getAccount(),
-  head: () =>
-    storeHead({
-      title: 'Account',
-      description: 'Your Ozikoro Store account: order history, delivery details and password.',
-      path: '/account',
-    }),
   component: Account,
 });
 

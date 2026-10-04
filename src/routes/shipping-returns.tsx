@@ -1,14 +1,14 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { StoreLayout, PageIntro } from '@/store/layout';
-import { storeHead } from '@/store/head';
 
 export const Route = createFileRoute('/shipping-returns')({
-  head: () =>
-    storeHead({
+  staticData: {
+    seo: {
       title: 'Shipping & returns',
       description: 'Delivery times, shipping costs and the returns policy for the Ozikoro Store.',
-      path: '/shipping-returns',
-    }),
+      kind: 'article',
+    },
+  },
   component: Shipping,
 });
 

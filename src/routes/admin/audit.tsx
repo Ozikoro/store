@@ -4,19 +4,20 @@ import { useState } from 'react';
 
 import { getAuditLog } from '@/server/admin';
 import { AdminPage, ErrorNote, Panel, adminButtonClass, formatDateTime } from '@/store/admin-layout';
-import { storeHead } from '@/store/head';
 
 export const Route = createFileRoute('/admin/audit')({
-  head: () =>
-    storeHead({
-      title: 'Admin audit log',
-      description: 'Price, inventory, refund and order-state changes.',
-      path: '/admin/audit',
-    }),
+  staticData: {
+    seo: {
+      title: 'Audit log',
+      description: 'Changes made in the Ozikoro Store admin.',
+      kind: 'private',
+      noindex: true,
+    },
+  },
   component: AuditAdmin,
 });
 
-const ENTITIES = ['all', 'product', 'variant', 'order', 'refund', 'discount', 'shipment'] as const;
+const ENTITIES = ['all', 'product', 'variant', 'order', 'refund', 'discount', 'shipment', 'setting'] as const;
 const LIMITS = [50, 100, 250, 500] as const;
 
 function AuditAdmin() {

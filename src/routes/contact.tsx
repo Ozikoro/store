@@ -2,18 +2,17 @@ import { createFileRoute } from '@tanstack/react-router';
 import { useState } from 'react';
 import { Mail, Clock, MapPin } from 'lucide-react';
 import { StoreLayout, PageIntro, Notice } from '@/store/layout';
-import { storeHead } from '@/store/head';
 import { Button } from '@/components/ui/button';
 import { sendContactMessage } from '@/server/store';
 
 export const Route = createFileRoute('/contact')({
-  head: () =>
-    storeHead({
+  staticData: {
+    seo: {
       title: 'Contact',
-      description:
-        'Get in touch with the Ozikoro Store about orders, products and commissioned artefacts. Lagos, Nigeria.',
-      path: '/contact',
-    }),
+      description: 'Get in touch with the Ozikoro Store about orders, products and commissioned artefacts. Lagos, Nigeria.',
+      kind: 'article',
+    },
+  },
   component: Contact,
 });
 

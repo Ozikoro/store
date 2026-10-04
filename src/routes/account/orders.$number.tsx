@@ -1,7 +1,6 @@
 import { createFileRoute, Link, notFound } from '@tanstack/react-router';
 import { ArrowLeft, Truck } from 'lucide-react';
 import { StoreLayout, PageIntro, Notice } from '@/store/layout';
-import { storeHead } from '@/store/head';
 import { Button } from '@/components/ui/button';
 import { NotFound } from '@/store/not-found';
 import { formatMoney } from '@/lib/money';
@@ -16,17 +15,19 @@ import { getOrderForCustomer } from '@/server/account';
  * saying "not allowed", because "not allowed" confirms the order exists.
  */
 export const Route = createFileRoute('/account/orders/$number')({
+  staticData: {
+    seo: {
+      title: 'Order',
+      description: 'An Ozikoro Store order.',
+      kind: 'private',
+      noindex: true,
+    },
+  },
   loader: async ({ params }) => {
     const result = await getOrderForCustomer({ data: { number: params.number } });
     if (!result.ok) throw notFound();
     return result.order;
   },
-  head: ({ loaderData }) =>
-    storeHead({
-      title: `Order ${loaderData?.number ?? ''}`,
-      description: 'Track an Ozikoro Store order.',
-      path: '/account',
-    }),
   component: OrderDetail,
   notFoundComponent: () => (
     <NotFound

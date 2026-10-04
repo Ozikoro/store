@@ -11,16 +11,17 @@ import {
   adminButtonClass,
   formatDateTime,
 } from '@/store/admin-layout';
-import { storeHead } from '@/store/head';
 import { formatMoney, minorToMajorString } from '@/lib/money';
 
 export const Route = createFileRoute('/admin/discounts')({
-  head: () =>
-    storeHead({
-      title: 'Admin discounts',
-      description: 'Discount codes and their redemption ceilings.',
-      path: '/admin/discounts',
-    }),
+  staticData: {
+    seo: {
+      title: 'Discounts',
+      description: 'Discount codes for the Ozikoro Store.',
+      kind: 'private',
+      noindex: true,
+    },
+  },
   component: DiscountsAdmin,
 });
 

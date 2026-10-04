@@ -43,6 +43,10 @@ function isoDay(value: string): string {
 
 export default {
   async fetch(): Promise<Response> {
+    // Only pages a crawler should have. The admin, the cart, the checkout, the
+    // account pages, the payment callback and the identity endpoints are all
+    // absent — the previous version of this file listed `/admin`, which is a
+    // private workspace.
     const entries: string[] = [
       url('/', '1.0', 'weekly'),
       url('/shop', '0.9', 'weekly'),

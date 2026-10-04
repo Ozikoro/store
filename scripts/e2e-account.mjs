@@ -190,14 +190,40 @@ try {
 
   // 7. The audit log records the work done so far.
   await goto(`${BASE}/admin/audit`);
-  const auditText = await evaluate('document.body.innerText');
-  const auditIsHonest =
-    /order\.|product\.|variant\.|account\.|discount\.|shipment\./.test(auditText ?? '') ||
-    /no .*(entries|activity|changes)|nothing/i.test(auditText ?? '');
+  // The rows arrive from a client-side query, so they are NOT in the first HTML.
+  // Reading the DOM immediately saw "Loading the trail…" and reported an empty
+  // log. Wait for a row or for the screen to say there is nothing.
+  for (let i = 0; i < 30; i += 1) {
+    const ready = await evaluate(`(() => {
+      const hasRow = !!document.querySelector('[data-testid^="audit-entry-"]');
+      const saysEmpty = /Nothing has been recorded/i.test(document.querySelector('main')?.innerText ?? '');
+      const errored = !!document.querySelector('[data-testid="admin-error"]');
+      return hasRow || saysEmpty || errored;
+    })()`);
+    if (ready) break;
+    await sleep(500);
+  }
+  // Read the audit rows themselves. An earlier version of this check regexed
+  // `document.body.innerText` for action verb prefixes, which matched the word
+  // "Product" in the navigation and passed while telling us nothing.
+  // Count the rendered rows. Two earlier versions of this check parsed the
+  // page text: the first matched the word "Product" in the navigation, and the
+  // second required a `.` followed by lowercase letters, which did not match
+  // `seo.setting_changed` because of the underscore. Counting elements asks the
+  // question directly.
+  const audit = await evaluate(`(() => {
+    const rows = document.querySelectorAll('[data-testid^="audit-entry-"]');
+    const actions = [...rows].map((row) => row.querySelector('.font-mono')?.textContent ?? '').filter(Boolean);
+    return {
+      count: rows.length,
+      sample: [...new Set(actions)].slice(0, 4).join(', '),
+      empty: /Nothing has been recorded/i.test(document.querySelector('main')?.innerText ?? ''),
+    };
+  })()`);
   check(
-    'the audit log lists changes or says there are none',
-    auditIsHonest === true,
-    (auditText ?? '').replace(/\n+/g, ' ').slice(0, 80)
+    'the audit log lists changes',
+    audit.count > 0,
+    audit.count > 0 ? `${audit.count} entries: ${audit.sample}` : audit.empty ? 'the screen says there are none' : 'no rows rendered'
   );
   await shot('05-admin-audit');
 

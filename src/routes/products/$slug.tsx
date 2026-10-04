@@ -4,12 +4,31 @@ import { ArrowLeft, Check, Truck, RotateCcw, Minus, Plus } from 'lucide-react';
 import { StoreLayout, Notice } from '@/store/layout';
 import { NotFound } from '@/store/not-found';
 import { ProductCard } from '@/store/product-card';
-import { storeHead, productStructuredData, breadcrumbStructuredData } from '@/store/head';
 import { useCart } from '@/store/cart';
 import { Button } from '@/components/ui/button';
 import { formatMoney } from '@/lib/money';
 import { parseDetails, isSoldOut } from '@/lib/catalog';
 import { getProduct } from '@/server/catalog';
+import { composeRouteHead } from '@/store/head-compose';
+import type { ProductWithVariants } from '@/lib/catalog';
+
+/**
+ * The offer block for a product's structured data, from its live variants.
+ *
+ * `offerCount` is the number of active variants, because that is how many ways
+ * there are to buy it — not one, which is what the store claimed before.
+ */
+function offersFor(product: ProductWithVariants) {
+  const active = product.variants.filter((variant) => variant.is_active);
+  const prices = active.map((variant) => variant.price_minor);
+  return {
+    currency: product.currency,
+    lowPriceMinor: prices.length ? Math.min(...prices) : product.price_minor,
+    highPriceMinor: prices.length ? Math.max(...prices) : product.price_minor,
+    inStock: active.some((variant) => variant.stock > 0) || product.made_to_order === 1,
+    sku: active[0]?.sku ?? product.slug,
+  };
+}
 
 export const Route = createFileRoute('/products/$slug')({
   loader: async ({ params }) => {
@@ -17,24 +36,41 @@ export const Route = createFileRoute('/products/$slug')({
     if (!result.found) throw notFound();
     return result;
   },
-  head: ({ loaderData }) => {
-    if (!loaderData?.found) {
-      return storeHead({
-        title: 'Product not found',
-        description: 'This product is no longer available.',
-        path: '/shop',
-      });
-    }
-    const { product } = loaderData;
-    return storeHead({
-      title: product.seo_title || product.title,
-      description:
-        product.seo_description || product.description.slice(0, 300) || `${product.title} from the Ozikoro Store.`,
-      path: `/products/${product.slug}`,
-      type: 'product',
-      image: product.image_url,
-    });
-  },
+  /**
+   * The product's head.
+   *
+   * The offer prices come from the REAL active variants, so the price in a
+   * result is the price the store will charge. `availability` is derived from
+   * live stock rather than assumed: telling a search engine something is in
+   * stock when it is not is how a shop earns an "unavailable" reputation.
+   */
+  staticData: { ownsHead: true },
+  head: (ctx) =>
+    composeRouteHead({
+      ctx,
+      kind: 'product',
+      fallbackTitle: 'Product',
+      route: ctx.loaderData?.found
+        ? {
+            title: ctx.loaderData.product.seo_title || ctx.loaderData.product.title,
+            description:
+              ctx.loaderData.product.seo_description ||
+              ctx.loaderData.product.description ||
+              `${ctx.loaderData.product.title} from the Ozikoro Store.`,
+            image: ctx.loaderData.product.image_url,
+            imageAlt: ctx.loaderData.product.image_alt || ctx.loaderData.product.title,
+            updated: ctx.loaderData.product.updated_at,
+            reference: ctx.loaderData.product.variants.find((variant) => variant.is_active)?.sku ?? null,
+            topics: [ctx.loaderData.product.category],
+            trail: [
+              { name: 'Shop', path: '/shop' },
+              { name: ctx.loaderData.product.category, path: '/collections' },
+              { name: ctx.loaderData.product.title, path: `/products/${ctx.loaderData.product.slug}` },
+            ],
+            offers: offersFor(ctx.loaderData.product),
+          }
+        : { title: 'Product not found', noindex: true },
+    }),
   component: ProductPage,
   notFoundComponent: () => (
     <NotFound
@@ -60,21 +96,6 @@ function ProductPage() {
   const variantLabel = product.category === 'Apparel' ? 'Select size' : 'Select format';
   const blocked = selected ? selected.stock <= 0 && product.made_to_order !== 1 : false;
 
-  const structured = productStructuredData({
-    name: product.title,
-    description: product.description,
-    image: product.image_url,
-    path: `/products/${product.slug}`,
-    sku: active[0]?.sku ?? product.slug,
-    currency: product.currency,
-    offers: active.map((variant) => ({
-      sku: variant.sku,
-      name: variant.title,
-      priceMinor: variant.price_minor,
-      inStock: variant.stock > 0 || product.made_to_order === 1,
-    })),
-  });
-
   async function onAdd() {
     if (!selected) {
       document.getElementById('variant-choice')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -86,17 +107,6 @@ function ProductPage() {
 
   return (
     <StoreLayout>
-      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: structured }} />
-      <script
-        type="application/ld+json"
-        dangerouslySetInnerHTML={{
-          __html: breadcrumbStructuredData([
-            { name: 'Shop', path: '/shop' },
-            { name: product.category, path: '/collections' },
-            { name: product.title, path: `/products/${product.slug}` },
-          ]),
-        }}
-      />
 
       <div className="site-container py-6">
         <Link

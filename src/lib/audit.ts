@@ -22,7 +22,9 @@ export type AuditEntity =
   | 'shipment'
   // Accounts are audited because changing a role is a privilege change, and a
   // privilege change with no record is an incident nobody can reconstruct.
-  | 'customer';
+  | 'customer'
+  // A settings change is a change to the site itself, not to a product.
+  | 'setting';
 
 export interface AuditActor {
   id: string;
@@ -30,7 +32,7 @@ export interface AuditActor {
 }
 
 export function isAuditEntity(value: string): value is AuditEntity {
-  return ['product', 'variant', 'order', 'refund', 'discount', 'shipment', 'customer'].includes(value);
+  return ['product', 'variant', 'order', 'refund', 'discount', 'shipment', 'customer', 'setting'].includes(value);
 }
 
 /**

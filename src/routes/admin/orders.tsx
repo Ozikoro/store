@@ -4,17 +4,18 @@ import { useState } from 'react';
 
 import { listOrdersAdmin } from '@/server/admin';
 import { AdminPage, ErrorNote, Panel, adminButtonClass, adminLinkClass, formatDateTime } from '@/store/admin-layout';
-import { storeHead } from '@/store/head';
 import { formatMoney } from '@/lib/money';
 import { ORDER_STATUSES, ORDER_STATUS_LABELS } from '@/lib/order-state';
 
 export const Route = createFileRoute('/admin/orders')({
-  head: () =>
-    storeHead({
-      title: 'Admin orders',
-      description: 'Search, filter and open every order.',
-      path: '/admin/orders',
-    }),
+  staticData: {
+    seo: {
+      title: 'Orders',
+      description: 'Ozikoro Store orders.',
+      kind: 'private',
+      noindex: true,
+    },
+  },
   component: OrdersAdmin,
 });
 

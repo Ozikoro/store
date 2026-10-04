@@ -1,17 +1,16 @@
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { ArrowUpRight } from 'lucide-react';
 import { StoreLayout, PageIntro } from '@/store/layout';
-import { storeHead } from '@/store/head';
 import { BrandMark } from '@/store/brand';
 
 export const Route = createFileRoute('/about')({
-  head: () =>
-    storeHead({
+  staticData: {
+    seo: {
       title: 'About',
-      description:
-        'The ideas behind the Ozikoro Store — a shop for objects that hold meaning, rooted in knowledge, creativity and cultural memory.',
-      path: '/about',
-    }),
+      description: 'The ideas behind the Ozikoro Store — a shop for objects that hold meaning, rooted in knowledge, creativity and cultural memory.',
+      kind: 'article',
+    },
+  },
   component: About,
 });
 

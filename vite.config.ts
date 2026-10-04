@@ -98,6 +98,7 @@ export default defineConfig({
           // Every export is a createServerFn; the request API is reached by a
           // dynamic import from inside a handler, so it is stripped with them.
           '**/server/oidc.ts',
+          '**/server/seo.ts',
           '**/server/typed.ts',
         ],
       },

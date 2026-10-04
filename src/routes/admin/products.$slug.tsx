@@ -18,16 +18,17 @@ import {
   adminLinkClass,
   adminQuietButtonClass,
 } from '@/store/admin-layout';
-import { storeHead } from '@/store/head';
 import { formatMoney, minorToMajorString } from '@/lib/money';
 
 export const Route = createFileRoute('/admin/products/$slug')({
-  head: ({ params }) =>
-    storeHead({
-      title: params.slug === 'new' ? 'New product' : `Edit ${params.slug}`,
-      description: 'Edit a product and its variants.',
-      path: `/admin/products/${params.slug}`,
-    }),
+  staticData: {
+    seo: {
+      title: 'Product',
+      description: 'Edit a product in the Ozikoro Store.',
+      kind: 'private',
+      noindex: true,
+    },
+  },
   component: ProductEditor,
 });
 
