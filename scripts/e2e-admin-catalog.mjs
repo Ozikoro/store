@@ -26,7 +26,7 @@
  *   E2E_EMAIL=… E2E_PASSWORD=… node scripts/e2e-admin-catalog.mjs [--url …] [--shots …]
  */
 
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -175,6 +175,10 @@ await send('Page.enable');
 await send('Runtime.enable');
 
 let createdProduct = false;
+/** The slug the product actually has. The editor REWRITES a slug, so the slug the
+ *  test chose is not necessarily the slug the home of the product. Cleanup must
+ *  use the real one or it silently archives nothing. */
+let actualSlug = SLUG;
 
 try {
   // ---------------------------------------------------------------- sign in
@@ -294,12 +298,19 @@ try {
   );
 
   // The confirmation is not the proof; the storefront is.
-  const afterCreate = await storefront(`/products/${SLUG}`);
+  // Read back the slug the editor settled on, rather than assuming.
+  const shownSlug = await evaluate(`(() => {
+    const el = document.querySelector('[data-testid="product-slug"]');
+    return el && 'value' in el ? String(el.value) : '';
+  })()`);
+  if (shownSlug) actualSlug = shownSlug;
+
+  const afterCreate = await storefront(`/products/${actualSlug}`);
   createdProduct = afterCreate.status === 200;
   check(
     'the new product appears on the storefront',
     createdProduct,
-    `status ${afterCreate.status}`
+    `status ${afterCreate.status} at /products/${actualSlug}`
   );
   // The storefront formats money with a thousands separator, and only shows
   // decimals when there are any: ₦1,234 and ₦1,234.50. Asserting on the raw
@@ -376,7 +387,7 @@ try {
     }
 
     // ------------------------------------------------- 5. archive the product
-    await goto(`${BASE}/admin/products/${SLUG}`);
+    await goto(`${BASE}/admin/products/${actualSlug}`);
     await waitFor('[data-testid="product-archive"]', 40);
     await evaluate(click('[data-testid="product-archive"]'));
     // An archive may ask for confirmation; accept whatever dialog appears.
@@ -384,7 +395,7 @@ try {
     await evaluate(`(() => { const b = document.querySelector('[data-testid="product-archive"]'); if (b) b.click(); return true; })()`);
     await sleep(4000);
 
-    const archived = await storefront(`/products/${SLUG}`);
+    const archived = await storefront(`/products/${actualSlug}`);
     check(
       'an archived product leaves the storefront',
       archived.status === 404,
@@ -395,19 +406,28 @@ try {
 } finally {
   // ------------------------------------------------------------------ cleanup
   //
-  // Archiving is the assertion AND the cleanup. If the run failed before that
-  // point, archive it here so a live shop is never left holding a test product.
+  // Archiving is the ASSERTION — an archived product is what the test proves —
+  // and archiving is not removal. Cleaning up through the admin UI also depends
+  // on the UI continuing to work, which is the thing being tested, and a UI
+  // cleanup that silently does nothing is exactly how runs left a product behind
+  // while reporting `now answers 404`.
+  //
+  // `purge-test-products.mjs` removes them directly. It refuses to touch a
+  // product with order lines, so it cannot destroy a real sale's records.
   try {
-    if (createdProduct) {
-      await goto(`${BASE}/admin/products/${SLUG}`);
-      await waitFor('[data-testid="product-archive"]', 30);
-      await evaluate(click('[data-testid="product-archive"]'));
-      await sleep(1200);
-      await evaluate(`(() => { const b = document.querySelector('[data-testid="product-archive"]'); if (b) b.click(); return true; })()`);
-      await sleep(3000);
-      const finalState = await fetch(`${BASE}/products/${SLUG}`);
-      console.log(`\n      cleanup: /products/${SLUG} now answers ${finalState.status}`);
-    }
+    const purge = spawnSync(
+      process.execPath,
+      ['scripts/purge-test-products.mjs', '--yes'],
+      { cwd: process.cwd(), encoding: 'utf8', env: process.env }
+    );
+    const summary = (purge.stdout ?? '').trim().split('\n').filter(Boolean).slice(-2).join(' | ');
+    console.log(`\n      cleanup: ${summary || purge.stderr?.trim() || 'nothing to remove'}`);
+    const stillThere = await fetch(`${BASE}/products/${actualSlug}`, { redirect: 'manual' });
+    check(
+      'cleanup left nothing purchasable',
+      stillThere.status !== 200,
+      stillThere.status === 200 ? `${actualSlug} is STILL on the storefront` : ''
+    );
   } catch (error) {
     console.error('cleanup failed:', error instanceof Error ? error.message : error);
   }
