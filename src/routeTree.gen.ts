@@ -10,10 +10,15 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as AboutRouteImport } from './routes/about'
 import { Route as CartRouteImport } from './routes/cart'
 import { Route as CheckoutRouteImport } from './routes/checkout'
+import { Route as ConfirmationRouteImport } from './routes/confirmation'
 import { Route as SearchRouteImport } from './routes/search'
+import { Route as ShippingReturnsRouteImport } from './routes/shipping-returns'
 import { Route as ShopRouteImport } from './routes/shop'
+import { Route as AccountIndexRouteImport } from './routes/account/index'
+import { Route as AccountOrdersRouteImport } from './routes/account/orders'
 import { Route as CollectionsIndexRouteImport } from './routes/collections/index'
 import { Route as CollectionsSlugRouteImport } from './routes/collections/$slug'
 import { Route as ProductsSlugRouteImport } from './routes/products/$slug'
@@ -21,6 +26,11 @@ import { Route as ProductsSlugRouteImport } from './routes/products/$slug'
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AboutRoute = AboutRouteImport.update({
+  id: '/about',
+  path: '/about',
   getParentRoute: () => rootRouteImport,
 } as any)
 const CartRoute = CartRouteImport.update({
@@ -33,15 +43,35 @@ const CheckoutRoute = CheckoutRouteImport.update({
   path: '/checkout',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ConfirmationRoute = ConfirmationRouteImport.update({
+  id: '/confirmation',
+  path: '/confirmation',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SearchRoute = SearchRouteImport.update({
   id: '/search',
   path: '/search',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ShippingReturnsRoute = ShippingReturnsRouteImport.update({
+  id: '/shipping-returns',
+  path: '/shipping-returns',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ShopRoute = ShopRouteImport.update({
   id: '/shop',
   path: '/shop',
   getParentRoute: () => rootRouteImport,
+} as any)
+const AccountIndexRoute = AccountIndexRouteImport.update({
+  id: '/account/',
+  path: '/account/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AccountOrdersRoute = AccountOrdersRouteImport.update({
+  id: '/orders',
+  path: '/orders',
+  getParentRoute: () => AccountRoute,
 } as any)
 const CollectionsIndexRoute = CollectionsIndexRouteImport.update({
   id: '/collections/',
@@ -61,76 +91,110 @@ const ProductsSlugRoute = ProductsSlugRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/about': typeof AboutRoute
   '/cart': typeof CartRoute
   '/checkout': typeof CheckoutRoute
+  '/confirmation': typeof ConfirmationRoute
   '/search': typeof SearchRoute
+  '/shipping-returns': typeof ShippingReturnsRoute
   '/shop': typeof ShopRoute
+  '/account/orders': typeof AccountOrdersRoute
   '/collections/$slug': typeof CollectionsSlugRoute
   '/products/$slug': typeof ProductsSlugRoute
+  '/account/': typeof AccountIndexRoute
   '/collections/': typeof CollectionsIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/about': typeof AboutRoute
   '/cart': typeof CartRoute
   '/checkout': typeof CheckoutRoute
+  '/confirmation': typeof ConfirmationRoute
   '/search': typeof SearchRoute
+  '/shipping-returns': typeof ShippingReturnsRoute
   '/shop': typeof ShopRoute
+  '/account/orders': typeof AccountOrdersRoute
   '/collections/$slug': typeof CollectionsSlugRoute
   '/products/$slug': typeof ProductsSlugRoute
+  '/account': typeof AccountIndexRoute
   '/collections': typeof CollectionsIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/about': typeof AboutRoute
   '/cart': typeof CartRoute
   '/checkout': typeof CheckoutRoute
+  '/confirmation': typeof ConfirmationRoute
   '/search': typeof SearchRoute
+  '/shipping-returns': typeof ShippingReturnsRoute
   '/shop': typeof ShopRoute
+  '/account/orders': typeof AccountOrdersRoute
   '/collections/$slug': typeof CollectionsSlugRoute
   '/products/$slug': typeof ProductsSlugRoute
+  '/account/': typeof AccountIndexRoute
   '/collections/': typeof CollectionsIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/about'
     | '/cart'
     | '/checkout'
+    | '/confirmation'
     | '/search'
+    | '/shipping-returns'
     | '/shop'
+    | '/account/orders'
     | '/collections/$slug'
     | '/products/$slug'
+    | '/account/'
     | '/collections/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/about'
     | '/cart'
     | '/checkout'
+    | '/confirmation'
     | '/search'
+    | '/shipping-returns'
     | '/shop'
+    | '/account/orders'
     | '/collections/$slug'
     | '/products/$slug'
+    | '/account'
     | '/collections'
   id:
     | '__root__'
     | '/'
+    | '/about'
     | '/cart'
     | '/checkout'
+    | '/confirmation'
     | '/search'
+    | '/shipping-returns'
     | '/shop'
+    | '/account/orders'
     | '/collections/$slug'
     | '/products/$slug'
+    | '/account/'
     | '/collections/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AboutRoute: typeof AboutRoute
   CartRoute: typeof CartRoute
   CheckoutRoute: typeof CheckoutRoute
+  ConfirmationRoute: typeof ConfirmationRoute
   SearchRoute: typeof SearchRoute
+  ShippingReturnsRoute: typeof ShippingReturnsRoute
   ShopRoute: typeof ShopRoute
   CollectionsSlugRoute: typeof CollectionsSlugRoute
   ProductsSlugRoute: typeof ProductsSlugRoute
+  AccountIndexRoute: typeof AccountIndexRoute
   CollectionsIndexRoute: typeof CollectionsIndexRoute
 }
 
@@ -141,6 +205,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/about': {
+      id: '/about'
+      path: '/about'
+      fullPath: '/about'
+      preLoaderRoute: typeof AboutRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/cart': {
@@ -157,11 +228,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof CheckoutRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/confirmation': {
+      id: '/confirmation'
+      path: '/confirmation'
+      fullPath: '/confirmation'
+      preLoaderRoute: typeof ConfirmationRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/search': {
       id: '/search'
       path: '/search'
       fullPath: '/search'
       preLoaderRoute: typeof SearchRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/shipping-returns': {
+      id: '/shipping-returns'
+      path: '/shipping-returns'
+      fullPath: '/shipping-returns'
+      preLoaderRoute: typeof ShippingReturnsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/shop': {
@@ -170,6 +255,20 @@ declare module '@tanstack/react-router' {
       fullPath: '/shop'
       preLoaderRoute: typeof ShopRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/account/': {
+      id: '/account/'
+      path: '/account'
+      fullPath: '/account/'
+      preLoaderRoute: typeof AccountIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/account/orders': {
+      id: '/account/orders'
+      path: '/orders'
+      fullPath: '/account/orders'
+      preLoaderRoute: typeof AccountOrdersRouteImport
+      parentRoute: typeof AccountRoute
     }
     '/collections/': {
       id: '/collections/'
@@ -197,12 +296,16 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AboutRoute: AboutRoute,
   CartRoute: CartRoute,
   CheckoutRoute: CheckoutRoute,
+  ConfirmationRoute: ConfirmationRoute,
   SearchRoute: SearchRoute,
+  ShippingReturnsRoute: ShippingReturnsRoute,
   ShopRoute: ShopRoute,
   CollectionsSlugRoute: CollectionsSlugRoute,
   ProductsSlugRoute: ProductsSlugRoute,
+  AccountIndexRoute: AccountIndexRoute,
   CollectionsIndexRoute: CollectionsIndexRoute,
 }
 export const routeTree = rootRouteImport
