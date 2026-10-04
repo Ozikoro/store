@@ -45,6 +45,22 @@ const cloudflare: CloudflareOptions = {
   deployConfig: true,
   wrangler: {
     name: 'ozikoro-store',
+    /*
+     * PINNED ON PURPOSE, AND NOT "today".
+     *
+     * Left unset, the build tool fills this in with the current date. Cloudflare
+     * rejects a compatibility date in the FUTURE, so while this machine's local
+     * date is ahead of UTC — which it is for part of every day, and was when this
+     * bit — every `wrangler deploy` failed with:
+     *
+     *     Can't set compatibility date in the future: 2026-10-05   [code: 10021]
+     *
+     * A pinned date also means a deploy is reproducible: the runtime's behaviour
+     * cannot change underneath the store because a deploy happened after
+     * midnight. It is bumped deliberately, with the Worker's own changelog in
+     * mind, rather than incidentally by a clock.
+     */
+    compatibility_date: '2026-09-01',
     compatibility_flags: ['nodejs_compat'],
     d1_databases: [
       {

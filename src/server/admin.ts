@@ -906,6 +906,42 @@ export const recheckPayment = createServerFn({ method: 'POST' })
     }
   });
 
+/**
+ * Ask the gateway again about a refund it has not settled.
+ *
+ * WHY THIS IS NEEDED
+ *
+ * A refund is accepted asynchronously: Paystack answers `processing` and settles
+ * later. The shop learns the outcome from the `refund.processed` /
+ * `refund.failed` webhook — which this account may deliver to ozituma.com, since
+ * Paystack allows ONE webhook URL per integration and the key is shared.
+ *
+ * A refund stuck in flight is money that has left the account while the order
+ * still says `partially_refunded` and its stock stays reserved. This asks the
+ * gateway directly, which is the only way to know without the webhook.
+ *
+ * It does not invent an outcome: a refund the gateway has not settled stays
+ * `processing`, and the operator is told exactly that.
+ */
+export const recheckRefund = createServerFn({ method: 'POST' })
+  .validator((input: unknown) => {
+    const data = (input ?? {}) as Record<string, unknown>;
+    return { refundId: str(data['refundId']).trim() };
+  })
+  .handler(async ({ data }) => {
+    const auditActor = asAuditActor(await requireStaff('orders:refund'));
+    if (!data.refundId) return { ok: false as const, error: 'No refund was chosen.' };
+
+    const { reconcileRefunds } = await import('../lib/refunds');
+    try {
+      const outcomes = await reconcileRefunds(auditActor, data.refundId);
+      const outcome = outcomes[0]?.outcome ?? 'nothing to check';
+      return { ok: true as const, settled: outcome === 'settled', message: outcome };
+    } catch (error) {
+      return { ok: false as const, error: describeError(error) };
+    }
+  });
+
 // ---------------------------------------------------------------- discounts
 
 export const listDiscountsAdmin = createServerFn({ method: 'GET' }).handler(async () => {

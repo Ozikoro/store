@@ -9,6 +9,7 @@ import {
   getOrderDetail,
   refundOrder,
   recheckPayment,
+  recheckRefund,
   setOrderNote,
   setShipmentStatus,
 } from '@/server/admin';
@@ -295,6 +296,9 @@ function OrderDetailPage() {
                     {refund.created_by || 'unknown'} · {formatDateTime(refund.created_at)}
                     {refund.restock ? ' · restocks' : ' · no restock'}
                   </p>
+                  {refund.status === 'processing' || refund.status === 'requested' || refund.status === 'approved' ? (
+                    <RefundRecheck refundId={refund.id} orderId={order.id} />
+                  ) : null}
                 </li>
               ))}
             </ul>
@@ -826,6 +830,47 @@ function PaymentRecovery({
           </span>
         ) : null}
       </div>
+    </div>
+  );
+}
+
+/**
+ * Ask the gateway about a refund that has not settled.
+ *
+ * A refund is accepted asynchronously — Paystack answers `processing` and decides
+ * later — and the outcome normally arrives by webhook. Paystack allows ONE webhook
+ * URL per integration and this account's key is shared with ozituma.com, so the
+ * delivery cannot be assumed. Meanwhile money has left the account and the order
+ * still says `partially_refunded`, with its stock reserved.
+ *
+ * The button asks the gateway directly. It never invents an outcome: a refund the
+ * gateway has not settled stays `processing`, and the note says so.
+ */
+function RefundRecheck({ refundId, orderId }: { refundId: string; orderId: string }) {
+  const { mutation, note } = useAdminAction<{ refundId: string }, ActionResult>(
+    (vars) => recheckRefund({ data: vars }),
+    orderId
+  );
+
+  return (
+    <div className="flex flex-wrap items-center gap-3 mt-2">
+      <button
+        type="button"
+        className={adminQuietButtonClass}
+        disabled={mutation.isPending}
+        data-testid={`recheck-refund-${refundId}`}
+        onClick={() => mutation.mutate({ refundId })}
+      >
+        {mutation.isPending ? 'Asking the gateway…' : 'Re-check this refund'}
+      </button>
+      {note ? (
+        <span
+          className={note.tone === 'ok' ? 'text-xs text-muted-foreground' : 'text-xs text-destructive'}
+          data-testid={`recheck-refund-note-${refundId}`}
+        >
+          {note.text}
+        </span>
+      ) : null}
     </div>
   );
 }

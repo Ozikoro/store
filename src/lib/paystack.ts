@@ -204,6 +204,58 @@ export function verifyWebhookSignature(rawBody: string, signature: string | null
 }
 
 /** Refund a settled transaction, in whole or in part. */
+/**
+ * Ask the gateway what actually became of a refund.
+ *
+ * WHY THIS IS NEEDED AT ALL
+ *
+ * `refundTransaction` returning success means the request was ACCEPTED, not that
+ * money moved: Paystack answers `processing` for a refund it settles later. The
+ * only two ways to learn the outcome are the `refund.processed` / `refund.failed`
+ * webhook and this call.
+ *
+ * The webhook cannot be relied on. Paystack permits one webhook URL per
+ * integration, and this account's key is shared with ozituma.com — so either the
+ * shop receives the refund events or ozituma does, and a refund settled through
+ * the other URL would stay `processing` forever. This is what makes the outcome
+ * knowable without it.
+ */
+export async function verifyRefund(refundId: string): Promise<
+  | { ok: true; status: 'completed' | 'failed' | 'processing'; reference: string | null }
+  | { ok: false; message: string }
+> {
+  const key = paystackSecret();
+  if (!key) return { ok: false, message: 'Card payment is not configured on this store yet.' };
+
+  let response: Response;
+  try {
+    response = await fetch(`${API}/refund/${encodeURIComponent(refundId)}`, {
+      headers: { Authorization: `Bearer ${key}` },
+      signal: AbortSignal.timeout(15_000),
+    });
+  } catch (error) {
+    return {
+      ok: false,
+      message: `Could not reach the payment provider: ${error instanceof Error ? error.message : 'unknown error'}`,
+    };
+  }
+
+  const body = (await response.json().catch(() => null)) as
+    | { status?: boolean; message?: string; data?: { status?: string; id?: number; transaction?: { reference?: string } } }
+    | null;
+
+  if (!response.ok || !body?.status) {
+    return { ok: false, message: body?.message ?? `Payment provider returned HTTP ${response.status}` };
+  }
+
+  const raw = String(body.data?.status ?? '').toLowerCase();
+  return {
+    ok: true,
+    status: raw === 'completed' || raw === 'success' ? 'completed' : raw === 'failed' ? 'failed' : 'processing',
+    reference: body.data?.transaction?.reference ?? null,
+  };
+}
+
 export async function refundTransaction(input: {
   providerReference: string;
   amountMinor: number;

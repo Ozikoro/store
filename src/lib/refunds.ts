@@ -14,8 +14,8 @@
 import { db } from './env';
 import { randomToken } from './crypto';
 import { recordAudit, type AuditActor } from './audit';
-import { refundTransaction } from './paystack';
-import { orderItems, findOrderById, findPaymentByReference, paymentsForOrder, returnOrderStock, updateOrderStatus } from './orders';
+import { refundTransaction, verifyRefund } from './paystack';
+import { orderItems, findOrderById, markPaymentRefunded, paymentsForOrder } from './orders';
 
 export interface RefundRow {
   id: string;
@@ -157,14 +157,95 @@ export async function executeRefund(refundId: string, actor: AuditActor | null):
     throw new RefundError(result.message);
   }
 
+  // THE STATUS PAYSTACK RETURNS IS NOT ALWAYS `completed`. A refund it accepts
+  // and settles later comes back as `processing`, and the first version of this
+  // function ignored that: it marked the refund `completed` and restocked the
+  // goods the moment the API returned, then the webhook ignored `refund.failed`.
+  // A refund that later failed left the customer recorded as refunded and the
+  // stock back on the shelf, having returned no money.
+  //
+  // So the row is marked completed only when the gateway says it is, and
+  // otherwise stays `processing` — which `refundableMinor` already counts as
+  // spent, so the customer cannot be refunded twice while it is in flight.
+  const settledNow = result.status === 'completed' || result.status === 'success';
   await db()
     .prepare(
       `UPDATE refunds
-          SET status = 'completed', provider_reference = ?2, updated_at = datetime('now')
+          SET status = ?3, provider_reference = ?2, updated_at = datetime('now')
         WHERE id = ?1`
     )
-    .bind(refundId, result.providerReference ?? settled.provider_reference)
+    .bind(refundId, result.providerReference ?? settled.provider_reference, settledNow ? 'completed' : 'processing')
     .run();
+
+  /*
+   * THE GOODS AND THE ORDER ONLY MOVE ONCE THE MONEY HAS.
+   *
+   * When Paystack settles a refund immediately, everything finalises here. When
+   * it does not, the refund is left `processing` and the webhook finishes the
+   * job — see `settleRefund`, which the `refund.processed` delivery calls. Until
+   * then the order still says `partially_refunded` and the stock stays reserved,
+   * because the customer has not been paid back yet.
+   */
+  if (settledNow) {
+    await settleRefund(refundId, actor);
+  } else {
+    // Accepted, not settled. Ask the gateway once more immediately: many refunds
+    // complete within the first second, and settling here means the common case
+    // does not depend on a webhook that this account may deliver elsewhere.
+    const checked = result.providerReference ? await verifyRefund(result.providerReference) : { ok: false as const, message: 'no reference' };
+    if (checked.ok && checked.status === 'completed') {
+      await settleRefund(refundId, actor);
+    } else if (checked.ok && checked.status === 'failed') {
+      await releaseFailedRefund(refundId, 'The gateway reports the refund failed.', actor);
+    } else {
+      await recordAudit({
+        actor,
+        action: 'refund.processing',
+        entity: 'refund',
+        entityId: refundId,
+        after: {
+          amountMinor: refund.amount_minor,
+          orderId: refund.order_id,
+          gatewayStatus: result.status,
+          verified: checked.ok ? checked.status : checked.message,
+        },
+      });
+    }
+  }
+
+  const updated = await db().prepare('SELECT * FROM refunds WHERE id = ?1').bind(refundId).first<RefundRow>();
+  if (!updated) throw new RefundError('Refund disappeared during execution.');
+  return updated;
+}
+
+/**
+ * Finish a refund the gateway has settled.
+ *
+ * Split out of `executeRefund` because it has two callers: the synchronous path,
+ * when Paystack settles before answering, and the webhook, when the money lands
+ * later. Both must do exactly the same three things, or a refund would restock on
+ * one path and not the other.
+ *
+ * Every step is idempotent. `restockRefund` is guarded by the inventory ledger,
+ * `markPaymentRefunded` only touches a settled payment, and
+ * `settleOrderAfterRefund` recomputes whether anything is left.
+ */
+export async function settleRefund(refundId: string, actor: AuditActor | null): Promise<void> {
+  const refund = await db().prepare('SELECT * FROM refunds WHERE id = ?1').bind(refundId).first<RefundRow>();
+  if (!refund) throw new RefundError('No such refund.');
+  if (refund.status === 'failed') {
+    // A refund that has already failed must never be finished by a late
+    // `refund.processed` for the same provider reference. The money is the
+    // gateway's to explain, and quietly restocking here would hide it.
+    throw new RefundError('That refund failed and cannot be settled.');
+  }
+
+  await db()
+    .prepare(`UPDATE refunds SET status = 'completed', updated_at = datetime('now') WHERE id = ?1`)
+    .bind(refundId)
+    .run();
+
+  await markPaymentRefunded(refund.order_id);
 
   if (refund.restock === 1) {
     await restockRefund(refund.order_id, refund.amount_minor, actor);
@@ -179,10 +260,64 @@ export async function executeRefund(refundId: string, actor: AuditActor | null):
     entityId: refundId,
     after: { amountMinor: refund.amount_minor, orderId: refund.order_id },
   });
+}
 
-  const updated = await db().prepare('SELECT * FROM refunds WHERE id = ?1').bind(refundId).first<RefundRow>();
-  if (!updated) throw new RefundError('Refund disappeared during execution.');
-  return updated;
+/**
+ * The gateway refused or could not complete a refund.
+ *
+ * The money did not move, so the order must stop claiming it did. Without this a
+ * failed refund left the order `partially_refunded` with a full balance still
+ * refundable — the worst of both: the operator believes money went out, and the
+ * store has quietly reserved stock for it.
+ */
+export async function releaseFailedRefund(refundId: string, reason: string, actor: AuditActor | null): Promise<void> {
+  const refund = await db().prepare('SELECT * FROM refunds WHERE id = ?1').bind(refundId).first<RefundRow>();
+  if (!refund) throw new RefundError('No such refund.');
+  if (refund.status === 'completed') {
+    throw new RefundError('That refund is already completed; a failure cannot be recorded against it.');
+  }
+
+  await db()
+    .prepare(`UPDATE refunds SET status = 'failed', reason = reason || ' — ' || ?2, updated_at = datetime('now') WHERE id = ?1`)
+    .bind(refundId, reason)
+    .run();
+
+  // If nothing was ever refunded, the order goes back to `paid`. If something
+  // was, it stays `partially_refunded`.
+  const order = await findOrderById(refund.order_id);
+  if (order && order.status === 'partially_refunded') {
+    const stillRefunded = await db()
+      .prepare(
+        `SELECT COALESCE(SUM(amount_minor), 0) AS n FROM refunds
+          WHERE order_id = ?1 AND status IN ('approved','processing','completed')`
+      )
+      .bind(refund.order_id)
+      .first<{ n: number }>();
+    if ((stillRefunded?.n ?? 0) === 0) {
+      await db()
+        .prepare(
+          `UPDATE orders SET status = 'paid', updated_at = datetime('now') WHERE id = ?1 AND status = 'partially_refunded'`
+        )
+        .bind(refund.order_id)
+        .run();
+    }
+  }
+
+  await recordAudit({
+    actor,
+    action: 'refund.failed',
+    entity: 'refund',
+    entityId: refundId,
+    after: { reason, orderId: refund.order_id, amountMinor: refund.amount_minor },
+  });
+}
+
+/** The refund a provider reference belongs to, for a webhook that carries only that. */
+export async function findRefundByProviderReference(providerReference: string): Promise<RefundRow | null> {
+  return db()
+    .prepare('SELECT * FROM refunds WHERE provider_reference = ?1 ORDER BY created_at DESC LIMIT 1')
+    .bind(providerReference)
+    .first<RefundRow>();
 }
 
 async function failRefund(refundId: string, reason: string): Promise<void> {
@@ -261,4 +396,48 @@ export async function totalsRefunded(limit = 100): Promise<number> {
     .bind(limit)
     .first<{ n: number }>();
   return row?.n ?? 0;
+}
+
+/**
+ * Reconcile refunds the gateway has accepted but not yet settled.
+ *
+ * The same argument as `recheckPayment`: the webhook is not ours to rely on, so
+ * an operator needs a way to ask. Called with no id it sweeps every refund still
+ * in flight, which is what someone does after noticing that money left the
+ * account and the order still says `partially_refunded`.
+ */
+export async function reconcileRefunds(
+  actor: AuditActor | null,
+  refundId?: string
+): Promise<Array<{ id: string; orderId: string; outcome: string }>> {
+  const rows = refundId
+    ? await db().prepare('SELECT * FROM refunds WHERE id = ?1').bind(refundId).all<RefundRow>()
+    : await db()
+        .prepare(`SELECT * FROM refunds WHERE status = 'processing' ORDER BY created_at LIMIT 50`)
+        .all<RefundRow>();
+
+  const out: Array<{ id: string; orderId: string; outcome: string }> = [];
+  for (const refund of rows.results ?? []) {
+    if (!refund.provider_reference) {
+      out.push({ id: refund.id, orderId: refund.order_id, outcome: 'no gateway reference to check' });
+      continue;
+    }
+    const checked = await verifyRefund(refund.provider_reference);
+    if (!checked.ok) {
+      out.push({ id: refund.id, orderId: refund.order_id, outcome: checked.message });
+      continue;
+    }
+    if (checked.status === 'completed') {
+      await settleRefund(refund.id, actor);
+      out.push({ id: refund.id, orderId: refund.order_id, outcome: 'settled' });
+      continue;
+    }
+    if (checked.status === 'failed') {
+      await releaseFailedRefund(refund.id, 'The gateway reports the refund failed.', actor);
+      out.push({ id: refund.id, orderId: refund.order_id, outcome: 'released — the refund failed' });
+      continue;
+    }
+    out.push({ id: refund.id, orderId: refund.order_id, outcome: `still ${checked.status}` });
+  }
+  return out;
 }

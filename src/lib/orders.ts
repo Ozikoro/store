@@ -470,6 +470,26 @@ export async function settlePayment(input: {
   return { changed: true, order: await findOrderById(order.id) };
 }
 
+/**
+ * Record that the gateway has taken a refund back out of the payments table.
+ *
+ * A refund does not change what the customer paid, but it does change what the
+ * business is holding, and the dashboard reads `payment_status`. Called once a
+ * refund is genuinely SETTLED at the gateway — not when the request is accepted,
+ * because between those two moments the money may still fail to arrive and the
+ * payment must keep saying `paid`.
+ */
+export async function markPaymentRefunded(orderId: string): Promise<void> {
+  await db()
+    .prepare(
+      `UPDATE payments
+          SET status = 'refunded', updated_at = datetime('now')
+        WHERE order_id = ?1 AND settled_at IS NOT NULL AND status = 'success'`
+    )
+    .bind(orderId)
+    .run();
+}
+
 export async function markPaymentFailed(reference: string, reason: string, raw?: unknown): Promise<void> {
   await db()
     .prepare(

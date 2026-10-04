@@ -42,6 +42,7 @@ import { db, env } from '../lib/env';
 import { sha256, randomToken } from '../lib/crypto';
 import { verifyWebhookSignature } from '../lib/paystack';
 import { confirmOrderPayment } from '../lib/checkout';
+import { findRefundByProviderReference, releaseFailedRefund, settleRefund } from '../lib/refunds';
 import { findPaymentByReference, findPaymentByProviderReference, markPaymentFailed } from '../lib/orders';
 
 export const WEBHOOK_PATH = '/api/webhooks/paystack';
@@ -55,6 +56,12 @@ interface PaystackEvent {
     amount?: number;
     currency?: string;
     gateway_response?: string;
+    /**
+     * Present on REFUND events, which carry no `data.reference` and put the
+     * original transaction here instead. Typed loosely because Paystack has been
+     * seen to send both an object and a bare reference string.
+     */
+    transaction?: { reference?: string } | string;
   };
 }
 
@@ -118,7 +125,29 @@ export async function handlePaystackWebhook(request: Request): Promise<Response>
   }
 
   const eventType = typeof event.event === 'string' ? event.event : 'unknown';
-  const reference = typeof event.data?.reference === 'string' ? event.data.reference : '';
+
+  /*
+   * A REFUND EVENT HAS NO `data.reference`.
+   *
+   * A charge carries the transaction reference at `data.reference`, and an
+   * earlier version of this handler required one and returned early without it.
+   * Paystack's refund events instead carry the refund's OWN id at `data.id` and
+   * the transaction under `data.transaction`. So a strict reading rejected every
+   * refund event as "no reference" before the refund branch could run — the
+   * handler would have acknowledged nothing and settled nothing.
+   *
+   * The reference used for deduplication is therefore the transaction reference
+   * where there is one, and otherwise the refund id, which is unique to the event
+   * and present on exactly the deliveries that lack the former.
+   */
+  const refundId = event.data?.id === undefined ? '' : String(event.data.id);
+  const reference =
+    (typeof event.data?.reference === 'string' ? event.data.reference : '') ||
+    (typeof event.data?.transaction === 'object' && typeof event.data.transaction?.reference === 'string'
+      ? event.data.transaction.reference
+      : '') ||
+    (refundId ? `refund:${refundId}` : '');
+
   const bodyHash = sha256(rawBody);
 
   let fresh: boolean;
@@ -161,11 +190,37 @@ export async function handlePaystackWebhook(request: Request): Promise<Response>
     }
 
     if (eventType === 'refund.processed' || eventType === 'refund.failed') {
-      // Refund state is owned by the refunds table, which records the outcome of
-      // an API call we made. The webhook is informational here; acknowledge it so
-      // it is not retried, and leave the row as the source of truth.
-      await completeEvent(bodyHash, `acknowledged ${eventType}`);
-      return json({ received: true, handled: false, reason: `ignored ${eventType}` });
+      /*
+       * A REFUND IS ASYNCHRONOUS, AND THESE TWO EVENTS ARE HOW IT ENDS.
+       *
+       * This used to acknowledge both and change nothing, on the reasoning that
+       * the refunds table already recorded the outcome of the API call. It does
+       * not: Paystack answers `processing` for a refund it will settle later, so
+       * the table only knows the request was accepted. Treating a pending refund
+       * as finished meant a refund that later failed was recorded as completed
+       * with the goods already restocked — the customer told they were refunded
+       * when no money moved.
+       *
+       * The refund is identified by the gateway's own reference, which is what
+       * `provider_reference` holds. `data.id` is used as a fallback because
+       * Paystack sends the refund id there.
+       */
+      const refund = refundId ? await findRefundByProviderReference(refundId) : null;
+
+      if (!refund) {
+        await completeEvent(bodyHash, `no refund row for ${refundId || 'an unnamed reference'}`);
+        return json({ received: true, handled: false, reason: 'no matching refund' });
+      }
+
+      if (eventType === 'refund.processed') {
+        await settleRefund(refund.id, null);
+        await completeEvent(bodyHash, `settled refund ${refund.id}`);
+        return json({ received: true, handled: true, reference });
+      }
+
+      await releaseFailedRefund(refund.id, event.data?.gateway_response ?? 'Paystack reports the refund failed', null);
+      await completeEvent(bodyHash, `refund ${refund.id} failed`);
+      return json({ received: true, handled: true, reference });
     }
 
     await completeEvent(bodyHash, `ignored ${eventType}`);
