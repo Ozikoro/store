@@ -22,11 +22,30 @@ export const Route = createFileRoute('/checkout/callback')({
       noindex: true,
     },
   },
-  validateSearch: (search: Record<string, unknown>) => ({
-    reference: typeof search['reference'] === 'string' ? (search['reference'] as string) : '',
-    trxref: typeof search['trxref'] === 'string' ? (search['trxref'] as string) : '',
+  /**
+   * Only the keys that actually carry a value.
+   *
+   * This returned `{ reference: '', trxref: '' }` for anything missing, and
+   * TanStack SERIALISES every key the validator returns back into the URL. So a
+   * callback missing either one was redirected once to a URL that added
+   * `trxref=` — and Paystack's real return URL is
+   * `/checkout/callback?trxref=…&reference=…`, which means the customer's own
+   * confirmation link bounced before it rendered.
+   *
+   * Returning an empty object for an absent key keeps the search object equal to
+   * the URL, which is what stops the redirect. It is the same fault that made
+   * `/account?next=` need fixing, and the rule is worth stating: a search
+   * validator must not invent keys.
+   */
+  validateSearch: (search: Record<string, unknown>): { reference?: string; trxref?: string } => {
+    const out: { reference?: string; trxref?: string } = {};
+    if (typeof search['reference'] === 'string' && search['reference']) out.reference = search['reference'];
+    if (typeof search['trxref'] === 'string' && search['trxref']) out.trxref = search['trxref'];
+    return out;
+  },
+  loaderDeps: ({ search }: { search: { reference?: string; trxref?: string } }) => ({
+    reference: search.reference || search.trxref || '',
   }),
-  loaderDeps: ({ search }) => ({ reference: search.reference || search.trxref }),
   loader: async ({ deps }) => {
     if (!deps.reference) return { state: 'missing' as const };
     return getPaymentConfirmation({ data: { reference: deps.reference } });

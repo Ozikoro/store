@@ -145,6 +145,11 @@ export interface SeoOutput {
 export function storeSeo(input: SeoInput): SeoOutput {
   const url = absoluteUrl(input.path);
   const title = clamp(input.title, 60);
+  // The suffix is stored with a leading space, and `clamp` TRIMS — so a title
+  // short enough to keep its space came out as "Checkout| Ozikoro Store" while a
+  // long one did not. Normalising both halves here means the stored value cannot
+  // affect whether the space survives.
+  const suffix = input.settings.titleSuffix.trim();
   const description = clamp(input.description || input.settings.defaultDescription, 158);
   const noindex = input.noindex ?? isPrivatePath(input.path);
   const organisation = input.settings.organisation;
@@ -257,7 +262,7 @@ export function storeSeo(input: SeoInput): SeoOutput {
     // A canonical on every page, including the private ones. On a private page it
     // is not about ranking; it is what stops a crawler that found the URL by
     // accident from treating two spellings of it as two pages.
-    { title: title.includes('Ozikoro') ? title : `${title}${input.settings.titleSuffix}` },
+    { title: title.includes('Ozikoro') ? title : suffix ? `${title} ${suffix}` : title },
     { name: 'description', content: description },
     { name: 'robots', content: robotsContent(noindex) },
     { property: 'og:site_name', content: 'Ozikoro Store' },

@@ -13,7 +13,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as AboutRouteImport } from './routes/about'
 import { Route as AdminRouteRouteImport } from './routes/admin/route'
 import { Route as CartRouteImport } from './routes/cart'
-import { Route as CheckoutRouteImport } from './routes/checkout'
+import { Route as CheckoutRouteRouteImport } from './routes/checkout/route'
 import { Route as ContactRouteImport } from './routes/contact'
 import { Route as PrivacyRouteImport } from './routes/privacy'
 import { Route as RefundsRouteImport } from './routes/refunds'
@@ -29,6 +29,7 @@ import { Route as AdminOrdersRouteImport } from './routes/admin/orders'
 import { Route as AdminPermissionsRouteImport } from './routes/admin/permissions'
 import { Route as AdminProductsRouteImport } from './routes/admin/products'
 import { Route as AdminSeoRouteImport } from './routes/admin/seo'
+import { Route as CheckoutIndexRouteImport } from './routes/checkout/index'
 import { Route as CheckoutCallbackRouteImport } from './routes/checkout.callback'
 import { Route as CollectionsIndexRouteImport } from './routes/collections/index'
 import { Route as CollectionsSlugRouteImport } from './routes/collections/$slug'
@@ -58,7 +59,7 @@ const CartRoute = CartRouteImport.update({
   path: '/cart',
   getParentRoute: () => rootRouteImport,
 } as any)
-const CheckoutRoute = CheckoutRouteImport.update({
+const CheckoutRouteRoute = CheckoutRouteRouteImport.update({
   id: '/checkout',
   path: '/checkout',
   getParentRoute: () => rootRouteImport,
@@ -138,10 +139,15 @@ const AdminSeoRoute = AdminSeoRouteImport.update({
   path: '/seo',
   getParentRoute: () => AdminRouteRoute,
 } as any)
+const CheckoutIndexRoute = CheckoutIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => CheckoutRouteRoute,
+} as any)
 const CheckoutCallbackRoute = CheckoutCallbackRouteImport.update({
   id: '/callback',
   path: '/callback',
-  getParentRoute: () => CheckoutRoute,
+  getParentRoute: () => CheckoutRouteRoute,
 } as any)
 const CollectionsIndexRoute = CollectionsIndexRouteImport.update({
   id: '/collections/',
@@ -182,9 +188,9 @@ const AdminProductsSlugRoute = AdminProductsSlugRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/admin': typeof AdminRouteRouteWithChildren
+  '/checkout': typeof CheckoutRouteRouteWithChildren
   '/about': typeof AboutRoute
   '/cart': typeof CartRoute
-  '/checkout': typeof CheckoutRouteWithChildren
   '/contact': typeof ContactRoute
   '/privacy': typeof PrivacyRoute
   '/refunds': typeof RefundsRoute
@@ -204,6 +210,7 @@ export interface FileRoutesByFullPath {
   '/products/$slug': typeof ProductsSlugRoute
   '/account/': typeof AccountIndexRoute
   '/admin/': typeof AdminIndexRoute
+  '/checkout/': typeof CheckoutIndexRoute
   '/collections/': typeof CollectionsIndexRoute
   '/account/orders/$number': typeof AccountOrdersNumberRoute
   '/admin/orders/$number': typeof AdminOrdersNumberRoute
@@ -213,7 +220,6 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
   '/cart': typeof CartRoute
-  '/checkout': typeof CheckoutRouteWithChildren
   '/contact': typeof ContactRoute
   '/privacy': typeof PrivacyRoute
   '/refunds': typeof RefundsRoute
@@ -233,6 +239,7 @@ export interface FileRoutesByTo {
   '/products/$slug': typeof ProductsSlugRoute
   '/account': typeof AccountIndexRoute
   '/admin': typeof AdminIndexRoute
+  '/checkout': typeof CheckoutIndexRoute
   '/collections': typeof CollectionsIndexRoute
   '/account/orders/$number': typeof AccountOrdersNumberRoute
   '/admin/orders/$number': typeof AdminOrdersNumberRoute
@@ -242,9 +249,9 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/admin': typeof AdminRouteRouteWithChildren
+  '/checkout': typeof CheckoutRouteRouteWithChildren
   '/about': typeof AboutRoute
   '/cart': typeof CartRoute
-  '/checkout': typeof CheckoutRouteWithChildren
   '/contact': typeof ContactRoute
   '/privacy': typeof PrivacyRoute
   '/refunds': typeof RefundsRoute
@@ -264,6 +271,7 @@ export interface FileRoutesById {
   '/products/$slug': typeof ProductsSlugRoute
   '/account/': typeof AccountIndexRoute
   '/admin/': typeof AdminIndexRoute
+  '/checkout/': typeof CheckoutIndexRoute
   '/collections/': typeof CollectionsIndexRoute
   '/account/orders/$number': typeof AccountOrdersNumberRoute
   '/admin/orders/$number': typeof AdminOrdersNumberRoute
@@ -274,9 +282,9 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/admin'
+    | '/checkout'
     | '/about'
     | '/cart'
-    | '/checkout'
     | '/contact'
     | '/privacy'
     | '/refunds'
@@ -296,6 +304,7 @@ export interface FileRouteTypes {
     | '/products/$slug'
     | '/account/'
     | '/admin/'
+    | '/checkout/'
     | '/collections/'
     | '/account/orders/$number'
     | '/admin/orders/$number'
@@ -305,7 +314,6 @@ export interface FileRouteTypes {
     | '/'
     | '/about'
     | '/cart'
-    | '/checkout'
     | '/contact'
     | '/privacy'
     | '/refunds'
@@ -325,6 +333,7 @@ export interface FileRouteTypes {
     | '/products/$slug'
     | '/account'
     | '/admin'
+    | '/checkout'
     | '/collections'
     | '/account/orders/$number'
     | '/admin/orders/$number'
@@ -333,9 +342,9 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/admin'
+    | '/checkout'
     | '/about'
     | '/cart'
-    | '/checkout'
     | '/contact'
     | '/privacy'
     | '/refunds'
@@ -355,6 +364,7 @@ export interface FileRouteTypes {
     | '/products/$slug'
     | '/account/'
     | '/admin/'
+    | '/checkout/'
     | '/collections/'
     | '/account/orders/$number'
     | '/admin/orders/$number'
@@ -364,9 +374,9 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AdminRouteRoute: typeof AdminRouteRouteWithChildren
+  CheckoutRouteRoute: typeof CheckoutRouteRouteWithChildren
   AboutRoute: typeof AboutRoute
   CartRoute: typeof CartRoute
-  CheckoutRoute: typeof CheckoutRouteWithChildren
   ContactRoute: typeof ContactRoute
   PrivacyRoute: typeof PrivacyRoute
   RefundsRoute: typeof RefundsRoute
@@ -416,7 +426,7 @@ declare module '@tanstack/react-router' {
       id: '/checkout'
       path: '/checkout'
       fullPath: '/checkout'
-      preLoaderRoute: typeof CheckoutRouteImport
+      preLoaderRoute: typeof CheckoutRouteRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/contact': {
@@ -524,12 +534,19 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminSeoRouteImport
       parentRoute: typeof AdminRouteRoute
     }
+    '/checkout/': {
+      id: '/checkout/'
+      path: '/'
+      fullPath: '/checkout/'
+      preLoaderRoute: typeof CheckoutIndexRouteImport
+      parentRoute: typeof CheckoutRouteRoute
+    }
     '/checkout/callback': {
       id: '/checkout/callback'
       path: '/callback'
       fullPath: '/checkout/callback'
       preLoaderRoute: typeof CheckoutCallbackRouteImport
-      parentRoute: typeof CheckoutRoute
+      parentRoute: typeof CheckoutRouteRoute
     }
     '/collections/': {
       id: '/collections/'
@@ -631,24 +648,26 @@ const AdminRouteRouteWithChildren = AdminRouteRoute._addFileChildren(
   AdminRouteRouteChildren,
 )
 
-interface CheckoutRouteChildren {
+interface CheckoutRouteRouteChildren {
   CheckoutCallbackRoute: typeof CheckoutCallbackRoute
+  CheckoutIndexRoute: typeof CheckoutIndexRoute
 }
 
-const CheckoutRouteChildren: CheckoutRouteChildren = {
+const CheckoutRouteRouteChildren: CheckoutRouteRouteChildren = {
   CheckoutCallbackRoute: CheckoutCallbackRoute,
+  CheckoutIndexRoute: CheckoutIndexRoute,
 }
 
-const CheckoutRouteWithChildren = CheckoutRoute._addFileChildren(
-  CheckoutRouteChildren,
+const CheckoutRouteRouteWithChildren = CheckoutRouteRoute._addFileChildren(
+  CheckoutRouteRouteChildren,
 )
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AdminRouteRoute: AdminRouteRouteWithChildren,
+  CheckoutRouteRoute: CheckoutRouteRouteWithChildren,
   AboutRoute: AboutRoute,
   CartRoute: CartRoute,
-  CheckoutRoute: CheckoutRouteWithChildren,
   ContactRoute: ContactRoute,
   PrivacyRoute: PrivacyRoute,
   RefundsRoute: RefundsRoute,

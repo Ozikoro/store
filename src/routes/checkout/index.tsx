@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { formatMoney } from '@/lib/money';
 import { getCheckoutPreview, submitOrder, getAccount } from '@/server/store';
 
-export const Route = createFileRoute('/checkout')({
+export const Route = createFileRoute('/checkout/')({
   staticData: {
     seo: {
       title: 'Checkout',

@@ -187,6 +187,62 @@ async function main() {
     );
   }
 
+  // ------------------------------------ a parent route must not swallow a child
+  //
+  // THIS IS THE CHECK THAT MATTERS MOST IN THIS FILE. `checkout.tsx` rendered the
+  // checkout form as its own component while `/checkout/callback` was its CHILD,
+  // and a parent that renders a component WITHOUT an `<Outlet />` swallows that
+  // child: the callback's loader still ran, so the page carried the right title
+  // and description, while the confirmation component never mounted.
+  //
+  // The customer returning from Paystack was shown an empty checkout form
+  // instead of their order. Nothing errored. The page looked plausible. A title
+  // check would have passed it, which is why this asserts on the BODY: the
+  // callback must say something only the callback can say.
+  for (const [path, marker, why] of [
+    ['/checkout/callback?reference=OZKNOSUCHREFERENCE', /could not (confirm|find) that payment/i, 'the payment verdict'],
+    ['/checkout/callback?trxref=OZKNOSUCHREFERENCE&reference=OZKNOSUCHREFERENCE', /could not (confirm|find) that payment/i, "the payment verdict for Paystack's own return shape"],
+    ['/checkout/callback', /could not (confirm|find) that payment/i, 'the verdict when no reference is given at all'],
+  ]) {
+    const response = await fetch(`${BASE}${path}`);
+    const html = await response.text();
+    const body = (html.match(/<main[\s\S]*?<\/main>/) ?? [''])[0];
+    const ok = response.status === 200 && marker.test(body);
+    check(
+      `${path.split('?')[0]} renders its own body — ${why}`,
+      ok,
+      ok ? 'found the verdict' : response.status !== 200 ? `status ${response.status}` : 'the page showed another route'
+    );
+    check(
+      `${path.split('?')[0]} does not show the checkout form`,
+      !/Payment is taken on Paystack/.test(body)
+    );
+  }
+
+  // The checkout form must still render at its own address, or the fix above
+  // would have moved the problem rather than solved it.
+  {
+    const response = await fetch(`${BASE}/checkout`);
+    const html = await response.text();
+    const body = (html.match(/<main[\s\S]*?<\/main>/) ?? [''])[0];
+    check(
+      '/checkout still renders the checkout form',
+      response.status === 200 && /Payment is taken on Paystack/.test(body),
+      `status ${response.status}`
+    );
+  }
+
+  // A callback must never be redirected: Paystack has already sent the customer,
+  // and a redirect loses the reference.
+  for (const path of ['/checkout/callback?trxref=X', '/checkout/callback?reference=X', '/checkout/callback']) {
+    const response = await fetch(`${BASE}${path}`, { redirect: 'manual' });
+    check(
+      `${path} is answered directly, not redirected`,
+      response.status === 200,
+      `status ${response.status}${response.headers.get('location') ? ` -> ${response.headers.get('location')}` : ''}`
+    );
+  }
+
   // ---------------------------------------------------------------- sitemap
 
   const sitemap = await (await fetch(`${BASE}/sitemap.xml`)).text();
