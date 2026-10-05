@@ -210,6 +210,19 @@ async function main() {
     console.log(`   deleted ${removed} stale bucket(s)`);
   }
 
+  // 4. Expired sessions. A session row outlives its own expiry by up to thirty
+  //    days of dead weight — one per sign-in, per test run, per device — and
+  //    nothing removed them. `actorFromToken` already destroys one when it is
+  //    presented after expiry; this clears the ones nobody ever presents again.
+  const staleSessions = await query(
+    `SELECT COUNT(*) AS n FROM sessions WHERE expires_at <= datetime('now')`
+  );
+  console.log(`\n4. Expired sessions: ${staleSessions[0]?.n ?? 0}.`);
+  if (!dryRun) {
+    const removed = await run(`DELETE FROM sessions WHERE expires_at <= datetime('now')`);
+    console.log(`   deleted ${removed} expired session(s)`);
+  }
+
   const after = await query(`
     SELECT
       (SELECT COUNT(*) FROM carts) AS total,

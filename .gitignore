@@ -49,3 +49,4 @@ dist-ssr
 .owner-password
 .e2e-outbox/
 .e2e-refund-admin/
+.e2e-roles/

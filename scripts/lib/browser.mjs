@@ -289,6 +289,34 @@ export async function startBrowser({ label = 'e2e', shots = null, windowSize = '
       return true;
     })()`;
 
+    /**
+     * Set a cookie as though the server had sent it.
+     *
+     * A suite that tests AUTHORISATION should not depend on the sign-in FORM.
+     * When both are in the picture, a flaky login and a genuine enforcement
+     * failure produce the same red result — which is exactly what happened to the
+     * role suite, twice. Writing the session cookie directly removes the login
+     * from the question.
+     *
+     * `Network.setCookie` is used rather than `document.cookie`, because the
+     * session cookie is HttpOnly and must stay that way: a test that could set it
+     * from JavaScript would be testing a weaker configuration than production.
+     */
+    const setCookie = async (name, value, { domain, secure = true } = {}) => {
+      if (!domain) throw new Error('setCookie needs a domain, e.g. { domain: "shop.ozikoro.com" }');
+      await send('Network.enable');
+      const response = await send('Network.setCookie', {
+        name,
+        value,
+        domain,
+        path: '/',
+        secure,
+        httpOnly: true,
+        sameSite: 'Lax',
+      });
+      return response?.result?.success !== false;
+    };
+
     const shot = async (name) => {
       if (!shots) return;
       const response = await send('Page.captureScreenshot', { format: 'png' });
@@ -376,6 +404,7 @@ export async function startBrowser({ label = 'e2e', shots = null, windowSize = '
       close,
       consoleErrors,
       send,
+      setCookie,
       navigations,
       url: () => currentUrl,
     };
