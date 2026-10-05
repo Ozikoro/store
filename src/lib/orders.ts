@@ -87,19 +87,44 @@ export function newPaymentReference(): string {
 }
 
 /** Propose the next order number. Uniqueness is enforced by the database. */
+/**
+ * The next order number.
+ *
+ * TWO FAULTS WERE HERE, AND BOTH ENDED IN A FAILED CHECKOUT.
+ *
+ * 1. IT COUNTED ROWS. `COUNT(*)` is not a sequence: delete one order and the
+ *    count falls, so the next order is handed a number an earlier order already
+ *    had. The number is what a customer quotes and what goes on a courier label,
+ *    so reusing one is wrong even when nothing collides. The highest number ever
+ *    issued is the correct source, read with `MAX` and parsed back to its integer
+ *    so `OZK-10999` sorts above `OZK-10100` rather than alphabetically below it.
+ *
+ * 2. IT CHECKED AND THEN RETURNED. Between the read and the insert another
+ *    checkout can take the same number, and `orders.number` is UNIQUE. This
+ *    function cannot close that window, so `createPendingOrder` retries the
+ *    collision.
+ */
 export async function nextOrderNumber(): Promise<string> {
   const row = await db()
-    .prepare('SELECT COUNT(*) AS n FROM orders')
-    .first<{ n: number }>();
-  const sequence = (row?.n ?? 0) + 1;
-  const candidate = formatOrderNumber(sequence);
-  const clash = await db()
-    .prepare('SELECT 1 AS x FROM orders WHERE number = ?1')
-    .bind(candidate)
-    .first<{ x: number }>();
-  // A deleted order can free a number; appending entropy keeps the UNIQUE
-  // constraint from turning that into a failed checkout.
-  return clash ? `${candidate}-${shortId(3)}` : candidate;
+    .prepare(
+      `SELECT COALESCE(MAX(CAST(substr(number, 5) AS INTEGER)), 10000) AS highest
+         FROM orders
+        WHERE number GLOB 'OZK-[0-9]*'`
+    )
+    .first<{ highest: number }>();
+  return formatOrderNumber(Number(row?.highest ?? 10000) - 10000 + 1);
+}
+
+/**
+ * True when a failed write was the order NUMBER colliding, and nothing else.
+ *
+ * Narrow on purpose: retrying on any error would hide a real one behind five
+ * attempts. The message is the only signal available — D1 reports no error code
+ * through the binding.
+ */
+function isNumberClash(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /UNIQUE constraint failed: orders\.number/i.test(message);
 }
 
 // ------------------------------------------------------------------ reads
@@ -238,7 +263,46 @@ export interface CreateOrderInput {
  * that never settles can be cancelled (returning the stock) and why the admin
  * dashboard surfaces pending orders.
  */
+/**
+ * Allocate the next order number and commit, retrying if it was taken in between.
+ *
+ * `orders.number` is UNIQUE and is what a customer quotes, so two checkouts that
+ * read the same highest number cannot both insert it. The loser would otherwise
+ * have its whole checkout fail on a database constraint — proved against D1 by
+ * inserting the same candidate twice, which returned
+ * `UNIQUE constraint failed: orders.number`.
+ *
+ * The allocation cannot be made atomic: the insert is part of a larger
+ * transaction. So the collision is retried here, because this is the function
+ * that owns the transaction that failed, and it is invisible to the customer —
+ * they simply get the next number.
+ *
+ * Bounded at five attempts. At that point something is wrong other than a
+ * collision, and a loop that never gives up would hang the request.
+ */
 export async function createPendingOrder(input: CreateOrderInput): Promise<OrderRow> {
+  const MAX_ATTEMPTS = 5;
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
+    try {
+      return await commitPendingOrder(input);
+    } catch (error) {
+      if (!isNumberClash(error) || attempt === MAX_ATTEMPTS) throw error;
+      console.error(`[orders] order number collided; retrying (attempt ${attempt})`);
+    }
+  }
+  // Unreachable: the loop either returns or throws.
+  throw new OrderWriteError('Could not allocate an order number. Please try again.');
+}
+
+/**
+ * Build and commit the order, its lines, the stock reservation and the ledger
+ * entry, in one transaction.
+ *
+ * Split out of `createPendingOrder` so a number collision can rebuild it: the
+ * number and the row ids are embedded in the statements, so every attempt
+ * prepares them fresh.
+ */
+async function commitPendingOrder(input: CreateOrderInput): Promise<OrderRow> {
   const id = `ord_${randomToken(12)}`;
   const number = await nextOrderNumber();
 

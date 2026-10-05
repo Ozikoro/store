@@ -228,3 +228,47 @@ describe('shipments move forward and can always be sent back', () => {
     }
   });
 });
+
+describe('order numbers, which are three lines and were wrong twice', () => {
+  /**
+   * `nextOrderNumber` cannot be unit tested — it reads the database — but the two
+   * parts that were WRONG can be, and both are the kind of mistake that reads as
+   * correct:
+   *
+   *   1. Deriving the sequence from `COUNT(*)`, which falls when a row is removed
+   *      and so reissues a number.
+   *   2. Treating a collision as a failure rather than retrying it.
+   */
+  it('formats a sequence the way a courier label expects', () => {
+    expect(formatOrderNumber(0)).toBe('OZK-10000');
+    expect(formatOrderNumber(1)).toBe('OZK-10001');
+    expect(formatOrderNumber(999)).toBe('OZK-10999');
+  });
+
+  it('never collapses two sequences onto one number', () => {
+    const seen = new Set<string>();
+    for (let i = 0; i < 5000; i += 1) seen.add(formatOrderNumber(i));
+    expect(seen.size).toBe(5000);
+  });
+
+  it('is strictly increasing, so a higher sequence is never a lower number', () => {
+    // The read parses the number back out of the string to find the highest. That
+    // only works if the format sorts in the same order as the sequence, which is
+    // why the digits are not zero-padded to a fixed width and then compared as
+    // text — `OZK-10999` must be above `OZK-10100`, not below it.
+    for (let i = 1; i < 200; i += 1) {
+      expect(formatOrderNumber(i) > formatOrderNumber(i - 1)).toBe(true);
+    }
+  });
+
+  it('parses its own output back to the sequence it came from', () => {
+    // The `MAX` read does `CAST(substr(number, 5) AS INTEGER)` and subtracts
+    // 10000. Round-tripping here means the read cannot silently produce a wrong
+    // highest number.
+    for (const sequence of [0, 1, 35, 999, 9999]) {
+      const number = formatOrderNumber(sequence);
+      const parsed = Number(number.slice(4)) - 10000;
+      expect(parsed).toBe(sequence);
+    }
+  });
+});

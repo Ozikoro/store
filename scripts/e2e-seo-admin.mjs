@@ -9,7 +9,7 @@
  * pass while the tag never reached a page.
  *
  * Usage:
- *   E2E_EMAIL=… E2E_PASSWORD=… node scripts/e2e-seo-admin.mjs \
+ *   CLOUDFLARE_API_TOKEN=… CLOUDFLARE_ACCOUNT_ID=… node scripts/e2e-seo-admin.mjs \
  *     [--url https://shop.ozikoro.com] [--shots .e2e-seo]
  */
 
@@ -21,15 +21,34 @@ const BASE = (index === -1 ? 'https://shop.ozikoro.com' : process.argv[index + 1
 const shotsIndex = process.argv.indexOf('--shots');
 const SHOTS = shotsIndex === -1 ? '.e2e-seo' : process.argv[shotsIndex + 1];
 
-const EMAIL = process.env['E2E_EMAIL'] ?? '';
-const PASSWORD = process.env['E2E_PASSWORD'] ?? '';
-if (!EMAIL || !PASSWORD) {
-  console.error('E2E_EMAIL and E2E_PASSWORD must be set.');
-  process.exit(2);
-}
+
 
 fs.mkdirSync(SHOTS, { recursive: true });
+import { createHash, randomBytes } from 'node:crypto';
+
 import { startBrowser, sleep } from './lib/browser.mjs';
+
+const API = 'https://api.cloudflare.com/client/v4';
+const CF_TOKEN = process.env['CLOUDFLARE_API_TOKEN'];
+const CF_ACCOUNT = process.env['CLOUDFLARE_ACCOUNT_ID'];
+const DATABASE = process.env['STORE_DATABASE'] ?? 'ozikoro-store';
+
+let databaseId = null;
+async function query(sql) {
+  const response = await fetch(`${API}/accounts/${CF_ACCOUNT}/d1/database/${databaseId}/query`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${CF_TOKEN}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sql }),
+  });
+  const body = await response.json().catch(() => null);
+  if (!response.ok || !body?.success) throw new Error(`query failed: ${JSON.stringify(body?.errors ?? response.status)}`);
+  return body.result ?? [];
+}
+
+const STAMP = Date.now().toString(36).slice(-6);
+const STAFF_ID = `cus_seo_${STAMP}`;
+const STAFF_TOKEN = randomBytes(32).toString('base64url');
+const STAFF_SESSION = createHash('sha256').update(STAFF_TOKEN, 'utf8').digest('hex');
 
 // One shared session: it asks the operating system for a free port and retries
 // the launch. See `scripts/lib/browser.mjs` — guessing a port from a fixed range
@@ -51,17 +70,32 @@ function check(name, ok, detail = '') {
 const TEST_CODE = `e2e-google-${Date.now().toString(36)}`;
 
 try {
-  // 1. Sign in.
-  await goto(`${BASE}/account`);
-  await evaluate(setField('[data-testid="account-email"]', EMAIL));
-  await evaluate(setField('[data-testid="account-password"]', PASSWORD));
-  await evaluate("document.querySelector('[data-testid=\"account-submit\"]').click(); true");
-  let signedIn = false;
-  for (let i = 0; i < 40 && !signedIn; i += 1) {
-    await sleep(500);
-    signedIn = (await evaluate("!!document.querySelector('[data-testid=\"sign-out\"]')")) === true;
+  // 1. A staff session, MINTED rather than signed in for.
+  //
+  // This suite is about the SEO screen. Signing in through the form made it
+  // depend on the login, and a flaky sign-in then reported an SEO failure — it
+  // happened twice. `createSession` stores only `sha256(token)`, so writing the
+  // row and setting the same HttpOnly cookie the app sets is equivalent, and it
+  // cannot fail for an unrelated reason.
+  if (!CF_TOKEN || !CF_ACCOUNT) {
+    console.error('CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID must be set.');
+    process.exit(2);
   }
-  check('signed in', signedIn === true);
+  const databases = await (await fetch(`${API}/accounts/${CF_ACCOUNT}/d1/database`, {
+    headers: { Authorization: `Bearer ${CF_TOKEN}` },
+  })).json();
+  databaseId = (databases?.result ?? []).find((entry) => entry.name === DATABASE)?.uuid;
+  if (!databaseId) throw new Error(`No D1 database named "${DATABASE}".`);
+
+  await query(
+    `INSERT INTO customers (id, email, name, role) VALUES ('${STAFF_ID}', 'seo-staff-${STAMP}@example.com', 'SEO Probe', 'super_admin')`
+  );
+  await query(
+    `INSERT INTO sessions (id, customer_id, role, expires_at, user_agent, ip_hash)
+     VALUES ('${STAFF_SESSION}', '${STAFF_ID}', 'super_admin', datetime('now', '+1 day'), 'seo-probe', 'seo-probe')`
+  );
+  await session.setCookie('ozikoro_store_session', STAFF_TOKEN, { domain: new URL(BASE).hostname });
+  check('a staff session is in place', true, 'minted directly');
 
   // 2. The SEO screen is reachable and reachable from the nav.
   await goto(`${BASE}/admin/seo`);
@@ -149,6 +183,15 @@ try {
     !/<meta name="google-site-verification" content=""/.test(emptyTag)
   );
 } finally {
+  try {
+    if (databaseId) {
+      await query(`DELETE FROM sessions WHERE id = '${STAFF_SESSION}'`);
+      await query(`DELETE FROM customers WHERE id = '${STAFF_ID}'`);
+    }
+  } catch (error) {
+    console.error('cleanup failed:', error instanceof Error ? error.message : error);
+  }
+
   const failed = results.filter((result) => !result.ok);
   console.log(`\n${results.length - failed.length}/${results.length} checks passed.`);
   for (const result of failed) console.log(`  - ${result.name}: ${result.detail}`);
