@@ -260,6 +260,28 @@ export async function settleRefund(refundId: string, actor: AuditActor | null): 
     entityId: refundId,
     after: { amountMinor: refund.amount_minor, orderId: refund.order_id },
   });
+
+  // The customer is told, once the refund has genuinely settled — not when it
+  // was requested, which is why this is here and not in `requestRefund`.
+  await queueRefundFor(refund.order_id, refund.amount_minor);
+}
+
+/** Queue the refund notice. Swallows its own failure, as the other hooks do. */
+async function queueRefundFor(orderId: string, amountMinor: number): Promise<void> {
+  try {
+    const order = await findOrderById(orderId);
+    if (!order) return;
+    const { queueRefundNotice } = await import('./mail');
+    await queueRefundNotice({
+      number: order.number,
+      email: order.email,
+      customerName: '',
+      amountMinor,
+      currency: order.currency,
+    });
+  } catch (error) {
+    console.error('[refunds] could not queue the refund notice for', orderId, error);
+  }
 }
 
 /**

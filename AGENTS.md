@@ -44,6 +44,11 @@
   an `<Outlet />` or move its UI to `index.tsx` in a folder, as `checkout/`,
   `admin/orders/` and `admin/products/` do.
 
+- **Outbound email goes through the outbox.** Never send from inside a request
+  that changes money or stock: write the message with `queue()` from
+  `src/lib/mail.ts` and let delivery happen separately. `docs/EMAIL.md` has the
+  rules, including why a failure is classified and never deleted.
+
 - Verify against the deployed store after changing routes: `scripts/e2e-seo.mjs`,
   `scripts/e2e-admin-catalog.mjs`, `scripts/e2e-account.mjs`,
   `scripts/e2e-checkout.mjs`, `scripts/e2e-oidc.mjs`. Run `pnpm test` for the pure

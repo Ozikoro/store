@@ -27,6 +27,7 @@ import { Route as AdminIndexRouteImport } from './routes/admin/index'
 import { Route as AdminAuditRouteImport } from './routes/admin/audit'
 import { Route as AdminDiscountsRouteImport } from './routes/admin/discounts'
 import { Route as AdminOrdersRouteRouteImport } from './routes/admin/orders/route'
+import { Route as AdminOutboxRouteImport } from './routes/admin/outbox'
 import { Route as AdminPermissionsRouteImport } from './routes/admin/permissions'
 import { Route as AdminProductsRouteRouteImport } from './routes/admin/products/route'
 import { Route as AdminSeoRouteImport } from './routes/admin/seo'
@@ -132,6 +133,11 @@ const AdminOrdersRouteRoute = AdminOrdersRouteRouteImport.update({
   path: '/orders',
   getParentRoute: () => AdminRouteRoute,
 } as any)
+const AdminOutboxRoute = AdminOutboxRouteImport.update({
+  id: '/outbox',
+  path: '/outbox',
+  getParentRoute: () => AdminRouteRoute,
+} as any)
 const AdminPermissionsRoute = AdminPermissionsRouteImport.update({
   id: '/permissions',
   path: '/permissions',
@@ -221,6 +227,7 @@ export interface FileRoutesByFullPath {
   '/admin/products': typeof AdminProductsRouteRouteWithChildren
   '/admin/audit': typeof AdminAuditRoute
   '/admin/discounts': typeof AdminDiscountsRoute
+  '/admin/outbox': typeof AdminOutboxRoute
   '/admin/permissions': typeof AdminPermissionsRoute
   '/admin/seo': typeof AdminSeoRoute
   '/checkout/callback': typeof CheckoutCallbackRoute
@@ -251,6 +258,7 @@ export interface FileRoutesByTo {
   '/terms': typeof TermsRoute
   '/admin/audit': typeof AdminAuditRoute
   '/admin/discounts': typeof AdminDiscountsRoute
+  '/admin/outbox': typeof AdminOutboxRoute
   '/admin/permissions': typeof AdminPermissionsRoute
   '/admin/seo': typeof AdminSeoRoute
   '/checkout/callback': typeof CheckoutCallbackRoute
@@ -286,6 +294,7 @@ export interface FileRoutesById {
   '/admin/products': typeof AdminProductsRouteRouteWithChildren
   '/admin/audit': typeof AdminAuditRoute
   '/admin/discounts': typeof AdminDiscountsRoute
+  '/admin/outbox': typeof AdminOutboxRoute
   '/admin/permissions': typeof AdminPermissionsRoute
   '/admin/seo': typeof AdminSeoRoute
   '/checkout/callback': typeof CheckoutCallbackRoute
@@ -322,6 +331,7 @@ export interface FileRouteTypes {
     | '/admin/products'
     | '/admin/audit'
     | '/admin/discounts'
+    | '/admin/outbox'
     | '/admin/permissions'
     | '/admin/seo'
     | '/checkout/callback'
@@ -352,6 +362,7 @@ export interface FileRouteTypes {
     | '/terms'
     | '/admin/audit'
     | '/admin/discounts'
+    | '/admin/outbox'
     | '/admin/permissions'
     | '/admin/seo'
     | '/checkout/callback'
@@ -386,6 +397,7 @@ export interface FileRouteTypes {
     | '/admin/products'
     | '/admin/audit'
     | '/admin/discounts'
+    | '/admin/outbox'
     | '/admin/permissions'
     | '/admin/seo'
     | '/checkout/callback'
@@ -552,6 +564,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminOrdersRouteRouteImport
       parentRoute: typeof AdminRouteRoute
     }
+    '/admin/outbox': {
+      id: '/admin/outbox'
+      path: '/outbox'
+      fullPath: '/admin/outbox'
+      preLoaderRoute: typeof AdminOutboxRouteImport
+      parentRoute: typeof AdminRouteRoute
+    }
     '/admin/permissions': {
       id: '/admin/permissions'
       path: '/permissions'
@@ -684,6 +703,7 @@ interface AdminRouteRouteChildren {
   AdminProductsRouteRoute: typeof AdminProductsRouteRouteWithChildren
   AdminAuditRoute: typeof AdminAuditRoute
   AdminDiscountsRoute: typeof AdminDiscountsRoute
+  AdminOutboxRoute: typeof AdminOutboxRoute
   AdminPermissionsRoute: typeof AdminPermissionsRoute
   AdminSeoRoute: typeof AdminSeoRoute
   AdminIndexRoute: typeof AdminIndexRoute
@@ -694,6 +714,7 @@ const AdminRouteRouteChildren: AdminRouteRouteChildren = {
   AdminProductsRouteRoute: AdminProductsRouteRouteWithChildren,
   AdminAuditRoute: AdminAuditRoute,
   AdminDiscountsRoute: AdminDiscountsRoute,
+  AdminOutboxRoute: AdminOutboxRoute,
   AdminPermissionsRoute: AdminPermissionsRoute,
   AdminSeoRoute: AdminSeoRoute,
   AdminIndexRoute: AdminIndexRoute,

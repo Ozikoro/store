@@ -467,6 +467,11 @@ export async function settlePayment(input: {
     after: { status: nextStatus, payment_status: 'paid', reference: input.reference },
   });
 
+  // The customer is told, and told AFTER the order is safely paid. The queue
+  // write cannot fail this function — see `mail.queue` — because a payment that
+  // is real must not be rolled back by an email that could not be prepared.
+  await queueConfirmationFor(order.id, input.reference);
+
   return { changed: true, order: await findOrderById(order.id) };
 }
 
@@ -679,7 +684,46 @@ export async function createShipment(input: CreateShipmentInput): Promise<Shipme
 
   const row = await db().prepare('SELECT * FROM shipments WHERE id = ?1').bind(id).first<ShipmentRow>();
   if (!row) throw new OrderWriteError('Shipment was not created.');
+
+  // Tell the customer it is on its way. Queued, not sent here: see `mail.ts`.
+  // The tracking details are the whole point of this message, so a shipment
+  // recorded without them still writes an email that says it has been dispatched.
+  await queueShippedFor(input.orderId, {
+    carrier: input.carrier,
+    trackingNumber: input.trackingNumber,
+    trackingUrl: input.trackingUrl ?? '',
+  });
+
   return row;
+}
+
+/**
+ * Queue the dispatch notice.
+ *
+ * Like the confirmation, it swallows its own failure: a parcel is dispatched
+ * whether or not an email could be prepared.
+ */
+async function queueShippedFor(
+  orderId: string,
+  shipment: { carrier: string; trackingNumber: string; trackingUrl: string }
+): Promise<void> {
+  try {
+    const order = await findOrderById(orderId);
+    if (!order) return;
+    const { findCustomerById } = await import('./auth');
+    const customer = order.customer_id ? await findCustomerById(order.customer_id) : null;
+    const { queueShippedNotice } = await import('./mail');
+    await queueShippedNotice({
+      number: order.number,
+      email: order.email,
+      customerName: customer?.name ?? '',
+      carrier: shipment.carrier,
+      trackingNumber: shipment.trackingNumber,
+      trackingUrl: shipment.trackingUrl,
+    });
+  } catch (error) {
+    console.error('[orders] could not queue the dispatch notice for', orderId, error);
+  }
 }
 
 export async function updateShipmentStatus(
@@ -740,4 +784,63 @@ export async function listOrders(input: {
     .all<OrderRow>();
 
   return { orders: rows.results ?? [], total: countRow?.n ?? 0 };
+}
+
+/**
+ * Queue the confirmation for a settled order.
+ *
+ * Kept out of `settlePayment` so that function still reads as the payment path.
+ * Deliberately swallows its own failures: the money is real and the order is
+ * paid, and neither of those facts may be undone because an email could not be
+ * written down.
+ */
+async function queueConfirmationFor(orderId: string, reference: string): Promise<void> {
+  try {
+    const order = await findOrderById(orderId);
+    if (!order) return;
+
+    const { findCustomerById } = await import('./auth');
+    const [items, customer] = await Promise.all([orderItems(orderId), findCustomerById(order.customer_id ?? '')]);
+
+    const address = (() => {
+      try {
+        const parsed: unknown = JSON.parse(order.shipping_address || '{}');
+        return parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : {};
+      } catch {
+        return {};
+      }
+    })();
+    const read = (key: string): string => {
+      const value = address[key];
+      return typeof value === 'string' ? value : '';
+    };
+    const lines = [
+      [read('firstName'), read('lastName')].filter(Boolean).join(' '),
+      read('line1'),
+      read('line2'),
+      [read('city'), read('region')].filter(Boolean).join(', '),
+      read('postalCode'),
+      read('country'),
+      read('phone'),
+    ].filter((line) => line.trim().length > 0);
+
+    const { queueOrderConfirmation } = await import('./mail');
+    await queueOrderConfirmation({
+      number: order.number,
+      email: order.email,
+      customerName: customer?.name ?? [read('firstName'), read('lastName')].filter(Boolean).join(' '),
+      totalMinor: order.total_minor,
+      currency: order.currency,
+      reference,
+      lines: items.map((item: OrderItemRow) => ({
+        title: item.title,
+        variantTitle: item.variant_title,
+        quantity: item.quantity,
+        unitPriceMinor: item.unit_price_minor,
+      })),
+      shippingAddress: lines,
+    });
+  } catch (error) {
+    console.error('[orders] could not queue the confirmation for', orderId, error);
+  }
 }

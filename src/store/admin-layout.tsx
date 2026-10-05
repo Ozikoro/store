@@ -29,7 +29,8 @@ interface NavItem {
     | '/admin/discounts'
     | '/admin/audit'
     | '/admin/permissions'
-    | '/admin/seo';
+    | '/admin/seo'
+    | '/admin/outbox';
   capability: Capability;
 }
 
@@ -39,6 +40,7 @@ const NAV: readonly NavItem[] = [
   { label: 'Products', to: '/admin/products', capability: 'catalog:read' },
   { label: 'Discounts', to: '/admin/discounts', capability: 'catalog:write' },
   { label: 'SEO', to: '/admin/seo', capability: 'content:write' },
+  { label: 'Outbox', to: '/admin/outbox', capability: 'orders:read:all' },
   { label: 'Audit', to: '/admin/audit', capability: 'dashboard:read' },
   // Only a super admin sees this link, and only a super admin can call the
   // functions behind it. The link is convenience; the check is the server's.

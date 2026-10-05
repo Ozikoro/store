@@ -47,3 +47,4 @@ dist-ssr
 .e2e-admin-catalog/
 .e2e-admin-catalog/
 .owner-password
+.e2e-outbox/

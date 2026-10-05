@@ -72,7 +72,7 @@ import {
 } from '../lib/checkout';
 import { ordersForCustomer, ordersForEmail } from '../lib/orders';
 import { checkDiscount } from '../lib/discounts';
-import { db } from '../lib/env';
+import { db, env } from '../lib/env';
 import { isRole, isStaff } from '../lib/roles';
 
 /**
@@ -630,6 +630,31 @@ export const sendContactMessage = createServerFn({ method: 'POST' })
       .prepare('INSERT INTO contact_messages (id, name, email, topic, message) VALUES (?1,?2,?3,?4,?5)')
       .bind(id, name.trim(), normaliseEmail(email), topic, message.trim())
       .run();
+
+    // Two messages, and the second is the one that matters operationally.
+    //
+    // The customer's copy is courtesy. The SHOP's copy is the difference between
+    // a message that reaches a person and one that sits in a table nobody opens —
+    // and the contact form is the only way a stranger can reach the store.
+    const { queueContactAcknowledgement, queueStaffNotice } = await import('../lib/mail');
+    await queueContactAcknowledgement({
+      name: name.trim(),
+      email: normaliseEmail(email),
+      topic,
+      message: message.trim(),
+      messageId: id,
+    });
+
+    const staffEmail =
+      (env().ADMIN_EMAILS ?? 'hello@ozikoro.com').split(',')[0]?.trim() ?? 'hello@ozikoro.com';
+    await queueStaffNotice({
+      staffEmail,
+      name: name.trim(),
+      email: normaliseEmail(email),
+      topic,
+      message: message.trim(),
+      messageId: id,
+    });
 
     return { ok: true as const, id };
   }) as unknown as DeclaredServerFn<ContactResponse>;

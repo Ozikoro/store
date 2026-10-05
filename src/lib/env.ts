@@ -28,6 +28,19 @@ export interface Env {
   /** Enables an owner-only, read-only diagnostic surface. */
   ADMIN_BOOTSTRAP_TOKEN?: string;
   /**
+   * The outbound email provider.
+   *
+   * Optional, and the store works without it: messages queue in `email_outbox`
+   * and wait. Set this and they begin to go out — see `src/lib/mailer.ts`.
+   */
+  RESEND_API_KEY?: string;
+  /** `1` records what would be sent instead of sending it. */
+  MAIL_CAPTURE?: string;
+  /** The From address. Must be a domain the provider has verified. */
+  MAIL_FROM?: string;
+  MAIL_REPLY_TO?: string;
+
+  /**
    * The store's own OIDC client id. The store is a client of its own identity
    * provider; see `src/server/oidc.ts` for why that is not as circular as it
    * looks.

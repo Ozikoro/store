@@ -1117,3 +1117,81 @@ export const setStaffRole = createServerFn({ method: 'POST' })
     });
     return { ok: true as const, email: customer.email, role };
   });
+
+// ---------------------------------------------------------------- outbound mail
+
+/**
+ * The outbox, for the admin.
+ *
+ * WHY THIS SCREEN IS NOT OPTIONAL
+ *
+ * The store queues email without a provider configured. That is the right
+ * behaviour and it is also invisible: unless somebody can see the queue, "we
+ * recorded what we owe" is indistinguishable from "nothing happened". This is
+ * where an owner finds out that a customer was never told their order was
+ * confirmed.
+ */
+export const getOutbox = createServerFn({ method: 'GET' }).handler(async () => {
+  asAuditActor(await requireStaff('orders:read:all'));
+  const { recentMessages, summary } = await import('../lib/mail');
+  const { mailConfig } = await import('../lib/mailer');
+  const { env: readEnv } = await import('../lib/env');
+
+  const [messages, counts] = await Promise.all([recentMessages(100), summary()]);
+  const config = mailConfig(readEnv() as unknown as Record<string, string | undefined>);
+
+  return {
+    messages,
+    counts,
+    provider: config.provider,
+    from: config.from,
+    // Said plainly, because it is the difference between a working shop and one
+    // that has been quietly silent.
+    configured: config.provider !== 'none',
+  };
+});
+
+/** Put a failed message back in the queue, or cancel one that should not go. */
+export const retryMessage = createServerFn({ method: 'POST' })
+  .validator((input: unknown) => {
+    const data = (input ?? {}) as Record<string, unknown>;
+    return { id: str(data['id']).trim() };
+  })
+  .handler(async ({ data }) => {
+    const auditActor = asAuditActor(await requireStaff('orders:read:all'));
+    if (!data.id) return { ok: false as const, error: 'No message was chosen.' };
+    const { requeue } = await import('../lib/mail');
+    const done = await requeue(data.id);
+    if (!done) {
+      return { ok: false as const, error: 'That message is not in a state that can be retried.' };
+    }
+    await recordAudit({
+      actor: auditActor,
+      action: 'mail.requeued',
+      entity: 'product',
+      entityId: data.id,
+      after: { id: data.id },
+    });
+    return { ok: true as const, message: 'Queued for another attempt.' };
+  });
+
+/** Try the queue now, so an owner does not have to wait for the next order. */
+export const flushOutbox = createServerFn({ method: 'POST' }).handler(async () => {
+  asAuditActor(await requireStaff('orders:read:all'));
+  const { flush } = await import('../lib/mail-queue');
+  const report = await flush(25);
+  if (report.provider === 'none') {
+    return {
+      ok: true as const,
+      sent: 0,
+      failed: 0,
+      message: 'No email provider is configured, so nothing was sent. Messages are waiting.',
+    };
+  }
+  return {
+    ok: true as const,
+    sent: report.sent,
+    failed: report.failed,
+    message: `${report.sent} sent, ${report.failed} failed, of ${report.attempted} attempted.`,
+  };
+});
