@@ -277,10 +277,38 @@ export async function confirmOrderPayment(reference: string): Promise<ConfirmRes
   const order = await findOrderById(payment.order_id);
   if (!order) return { ok: false, error: 'We have no record of that order.' };
 
-  // Already settled: report success without calling the gateway again. This is
-  // the common path when the webhook beat the browser back to the site.
+  /*
+   * A SETTLED PAYMENT WHOSE ORDER IS NOT PAID IS NOT FINISHED.
+   *
+   * This returned success immediately whenever the payment row was already
+   * settled, without asking whether the order had been marked paid. It usually
+   * had — the webhook and the callback race, and the second one is a no-op.
+   *
+   * But `settlePayment` writes the payment row first and the order second, and a
+   * process that stops in between leaves a payment that is `success` with an
+   * order still `pending`. Every later call then reported "already settled" and
+   * changed nothing: the customer has paid, the shop believes they have not, and
+   * no retry or webhook redelivery could ever fix it.
+   *
+   * So the settled case checks the ORDER too, and can still call `settlePayment`
+   * — which is idempotent, re-runs its amount check, and is the only thing that
+   * marks an order paid. The gateway is still not contacted: the payment row
+   * already records that it was verified.
+   */
   if (payment.settled_at && payment.status === 'success') {
-    return { ok: true, order, alreadySettled: true };
+    if (order.status !== 'pending' && order.status !== 'failed') {
+      return { ok: true, order, alreadySettled: true };
+    }
+    const repaired = await settlePayment({
+      reference,
+      amountMinor: payment.amount_minor,
+      currency: payment.currency,
+      providerReference: payment.provider_reference ?? null,
+      channel: payment.channel ?? null,
+      gatewayResponse: payment.gateway_response ?? null,
+      raw: {},
+    });
+    return { ok: true, order: repaired.order ?? order, alreadySettled: true };
   }
 
   const verified = await verifyTransaction(reference);

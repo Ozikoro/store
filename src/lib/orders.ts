@@ -393,9 +393,27 @@ export async function settlePayment(input: {
   const order = await findOrderById(payment.order_id);
   if (!order) return { changed: false, order: null };
 
-  if (payment.settled_at && payment.status === 'success') {
-    return { changed: false, order };
-  }
+  /*
+   * A SETTLED PAYMENT WHOSE ORDER WAS NEVER MARKED PAID IS NOT DONE.
+   *
+   * This returned early whenever the payment row was already `success`. The
+   * reasoning was idempotency — which the SQL below already provides, since it
+   * only matches rows that are not already `success`, and the order update only
+   * applies when the status differs.
+   *
+   * What the early return actually did was make a half-completed settlement
+   * UNREPAIRABLE. `settlePayment` writes the payment first and the order second,
+   * for the good reason that the money is the fact and the order status is a
+   * consequence of it — so a process that stops in between leaves a payment that
+   * is `success` with an order still `pending`. Every later call, including the
+   * webhook's own retries, then returned "already settled" without touching the
+   * order: the customer has paid, and the shop believes they have not.
+   *
+   * The AMOUNT CHECK STILL RUNS, and it is the reason this is safe. A settled
+   * payment whose amount disagrees with the order is refused here, so removing
+   * the early return cannot let a wrong amount through.
+   */
+  const alreadySettled = Boolean(payment.settled_at) && payment.status === 'success';
 
   // The amount check. Minor units on both sides, compared exactly.
   if (input.amountMinor !== order.total_minor) {
@@ -440,8 +458,9 @@ export async function settlePayment(input: {
     )
     .run();
 
-  if (!updated.meta || (updated.meta['changes'] as number) === 0) {
-    // Another isolate settled it between our read and our write. Nothing to do.
+  if (!alreadySettled && (!updated.meta || (updated.meta['changes'] as number) === 0)) {
+    // A genuinely fresh settlement that changed no rows: another isolate got
+    // there between our read and our write. Nothing to do.
     return { changed: false, order: await findOrderById(payment.order_id) };
   }
 
@@ -472,7 +491,7 @@ export async function settlePayment(input: {
   // is real must not be rolled back by an email that could not be prepared.
   await queueConfirmationFor(order.id, input.reference);
 
-  return { changed: true, order: await findOrderById(order.id) };
+  return { changed: !alreadySettled, order: await findOrderById(order.id) };
 }
 
 /**
