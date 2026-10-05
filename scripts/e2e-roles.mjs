@@ -79,6 +79,10 @@ const EMAIL = `role-probe-${STAMP}@example.com`;
 const CUSTOMER_ID = `cus_role_${STAMP}`;
 const SESSION_TOKEN = randomBytes(32).toString('base64url');
 const SESSION_ID = createHash('sha256').update(SESSION_TOKEN, 'utf8').digest('hex');
+/** The non-staff probe, declared here so `finally` can remove it. */
+const PLAIN_ID = `cus_plain_${STAMP}`;
+const PLAIN_TOKEN = randomBytes(32).toString('base64url');
+const PLAIN_SESSION = createHash('sha256').update(PLAIN_TOKEN, 'utf8').digest('hex');
 
 const session = await startBrowser({ label: 'roles', shots: SHOTS, windowSize: '1440,1100' });
 
@@ -184,6 +188,62 @@ try {
   }
   await session.shot('02-refused');
 
+  // ------------------------------- a CUSTOMER account must not enter at all
+  //
+  // The shell gates on `isStaff(role)`. A capability check inside a server
+  // function cannot protect a screen whose frame a customer can already see, so
+  // this is the first door and the one worth testing directly.
+  console.log('\n--- a non-staff account ---');
+  await query(
+    `INSERT INTO customers (id, email, name, role) VALUES ('${PLAIN_ID}', 'plain-${STAMP}@example.com', 'Plain Probe', 'customer')`
+  );
+  await query(
+    `INSERT INTO sessions (id, customer_id, role, expires_at, user_agent, ip_hash)
+     VALUES ('${PLAIN_SESSION}', '${PLAIN_ID}', 'customer', datetime('now', '+1 day'), 'role-probe', 'role-probe')`
+  );
+  await session.setCookie('ozikoro_store_session', PLAIN_TOKEN, { domain: new URL(BASE).hostname });
+
+  await session.goto(`${BASE}/admin/outbox`, 800);
+  const asCustomer = await session.evaluate(SETTLED);
+  check(
+    'a CUSTOMER account is refused the admin entirely',
+    asCustomer?.state === 'refused',
+    `state ${asCustomer?.state}${asCustomer?.title ? ` as "${asCustomer.title}"` : ''}`
+  );
+
+  // ---------------------------- and a revoked role must stop working at once
+  //
+  // `setCustomerRole` destroys every session for the account, which is what makes
+  // a revocation take effect at the next sign-in rather than up to thirty days
+  // later. This asserts the outcome a customer of that function depends on: the
+  // OLD session no longer resolves.
+  console.log('\n--- revocation ---');
+  await session.setCookie('ozikoro_store_session', SESSION_TOKEN, { domain: new URL(BASE).hostname });
+  await session.goto(`${BASE}/admin`, 800);
+  const beforeRevoke = await session.evaluate(SETTLED);
+  check('the staff session works before revocation', beforeRevoke?.state === 'rendered', JSON.stringify(beforeRevoke));
+
+  // Exactly what `setCustomerRole` does.
+  await query(`UPDATE customers SET role = 'customer' WHERE id = '${CUSTOMER_ID}'`);
+  await query(`DELETE FROM sessions WHERE customer_id = '${CUSTOMER_ID}'`);
+
+  await session.goto(`${BASE}/admin`, 800);
+  const afterRevoke = await session.evaluate(SETTLED);
+  check(
+    'THE SAME SESSION IS REFUSED IMMEDIATELY AFTER REVOCATION',
+    afterRevoke?.state === 'refused',
+    `state ${afterRevoke?.state}${afterRevoke?.title ? ` as "${afterRevoke.title}"` : ''}`
+  );
+  await session.shot('04-revoked');
+
+  // Restore the staff role so the rest of the suite still has a session to use.
+  await query(`UPDATE customers SET role = 'content_manager' WHERE id = '${CUSTOMER_ID}'`);
+  await query(
+    `INSERT INTO sessions (id, customer_id, role, expires_at, user_agent, ip_hash)
+     VALUES ('${SESSION_ID}', '${CUSTOMER_ID}', 'content_manager', datetime('now', '+1 day'), 'role-probe', 'role-probe')`
+  );
+  await session.setCookie('ozikoro_store_session', SESSION_TOKEN, { domain: new URL(BASE).hostname });
+
   // ------------------------------------------- the screen it holds STILL renders
   await session.goto(`${BASE}/admin/seo`, 800);
   const seoForm = await session.waitFor('[data-testid="seo-save"]', 60);
@@ -199,10 +259,17 @@ try {
 } finally {
   try {
     if (databaseId) {
-      await query(`DELETE FROM sessions WHERE id = '${SESSION_ID}'`);
-      await query(`DELETE FROM customers WHERE id = '${CUSTOMER_ID}'`);
-      const left = await query(`SELECT COUNT(*) AS n FROM customers WHERE email LIKE 'role-probe-%'`);
-      console.log(`\n      cleanup: ${left[0]?.n ?? '?'} role-probe account(s) remaining`);
+      await query(`DELETE FROM sessions WHERE customer_id IN ('${CUSTOMER_ID}', '${PLAIN_ID}')`);
+      await query(`DELETE FROM customers WHERE id IN ('${CUSTOMER_ID}', '${PLAIN_ID}')`);
+      // By every email this run could have used, not just one prefix: the plain
+      // account uses `plain-` and an earlier version of this cleanup counted only
+      // `role-probe-`, so it reported a leftover as zero.
+      const left = await query(
+        `SELECT COUNT(*) AS n FROM customers
+          WHERE email LIKE 'role-probe-%' OR email LIKE 'plain-%' OR email
+            IN ('${EMAIL}', 'plain-${STAMP}@example.com')`
+      );
+      console.log(`\n      cleanup: ${left[0]?.n ?? '?'} probe account(s) remaining`);
     }
   } catch (error) {
     console.error('cleanup failed:', error instanceof Error ? error.message : error);
