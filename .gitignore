@@ -48,3 +48,4 @@ dist-ssr
 .e2e-admin-catalog/
 .owner-password
 .e2e-outbox/
+.e2e-refund-admin/

@@ -43,6 +43,16 @@ const token = process.env['CLOUDFLARE_API_TOKEN'];
 const accountId = process.env['CLOUDFLARE_ACCOUNT_ID'];
 const databaseName = process.env['STORE_DATABASE'] ?? 'ozikoro-store';
 
+/** Clear rate-limit buckets by prefix, for when a legitimate person is locked out. */
+function ratePrefix() {
+  const index = process.argv.indexOf('--clear-rate-limits');
+  if (index === -1) return null;
+  const value = process.argv[index + 1];
+  // Refusing to clear EVERYTHING unless asked explicitly: the login limiter is a
+  // security control, and a command that quietly disables it is a footgun.
+  return value && !value.startsWith('--') ? value : '*';
+}
+
 function arg(name, fallback) {
   const index = process.argv.indexOf(`--${name}`);
   return index === -1 ? fallback : process.argv[index + 1];
@@ -94,6 +104,19 @@ async function main() {
   const database = (databases ?? []).find((entry) => entry.name === databaseName);
   if (!database) throw new Error(`No D1 database named "${databaseName}".`);
   databaseId = database.uuid;
+
+  const clearPrefix = ratePrefix();
+  if (clearPrefix !== null && !dryRun) {
+    // An owner locked out by the login limiter has no other way back: there is no
+    // "forgot password" flow, so the limit cannot be cleared from the site. This
+    // is the operator's answer.
+    const removed = await run(
+      clearPrefix === '*'
+        ? 'DELETE FROM rate_limits'
+        : `DELETE FROM rate_limits WHERE key LIKE '${clearPrefix.replace(/'/g, "''")}%'`
+    );
+    console.log(`Cleared ${removed} rate-limit bucket(s) matching "${clearPrefix}".\n`);
+  }
 
   const before = await query(`
     SELECT
@@ -174,6 +197,19 @@ async function main() {
   }
 
   // 3. What remains, including the signal worth keeping.
+  // 3. Rate-limit buckets, on the same argument as the carts: a key that is only
+  //    meaningful inside its window leaves a row behind forever, one per visitor.
+  const staleLimits = await query(
+    `SELECT COUNT(*) AS n FROM rate_limits WHERE window_start <= datetime('now', '-86400 seconds')`
+  );
+  console.log(`\n3. Rate-limit buckets older than a day: ${staleLimits[0]?.n ?? 0}.`);
+  if (!dryRun) {
+    const removed = await run(
+      `DELETE FROM rate_limits WHERE window_start <= datetime('now', '-86400 seconds')`
+    );
+    console.log(`   deleted ${removed} stale bucket(s)`);
+  }
+
   const after = await query(`
     SELECT
       (SELECT COUNT(*) FROM carts) AS total,

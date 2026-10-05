@@ -143,7 +143,7 @@ export async function executeRefund(refundId: string, actor: AuditActor | null):
   const settled = payments.find((payment) => payment.status === 'success' && payment.provider_reference);
 
   if (!settled?.provider_reference) {
-    await failRefund(refundId, 'No settled payment to refund against.');
+    await releaseFailedRefund(refundId, 'No settled payment to refund against.', actor);
     throw new RefundError('This order has no settled payment to refund against.');
   }
 
@@ -153,7 +153,7 @@ export async function executeRefund(refundId: string, actor: AuditActor | null):
   });
 
   if (!result.ok) {
-    await failRefund(refundId, result.message);
+    await releaseFailedRefund(refundId, result.message, actor);
     throw new RefundError(result.message);
   }
 
@@ -340,15 +340,6 @@ export async function findRefundByProviderReference(providerReference: string): 
     .prepare('SELECT * FROM refunds WHERE provider_reference = ?1 ORDER BY created_at DESC LIMIT 1')
     .bind(providerReference)
     .first<RefundRow>();
-}
-
-async function failRefund(refundId: string, reason: string): Promise<void> {
-  await db()
-    .prepare(
-      `UPDATE refunds SET status = 'failed', reason = reason || ' — ' || ?2, updated_at = datetime('now') WHERE id = ?1`
-    )
-    .bind(refundId, reason)
-    .run();
 }
 
 /**

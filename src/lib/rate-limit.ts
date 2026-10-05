@@ -29,8 +29,31 @@ export const RATE_LIMITS = {
   register: { limit: 6, windowSeconds: 60 * 60 },
   /** Checkout initialisations per IP. */
   checkout: { limit: 20, windowSeconds: 15 * 60 },
-  /** Contact messages per IP. */
-  contact: { limit: 5, windowSeconds: 60 * 60 },
+  /**
+   * Contact messages per IP.
+   *
+   * THIS WAS 5 AN HOUR, AND THAT IS TOO FEW. The limit exists to stop a script
+   * filling the inbox, but the key is an IP address and a whole office, a
+   * coworking space, a campus or a mobile carrier's NAT shares ONE. Five
+   * messages an hour between everyone behind that address means the sixth person
+   * to write to the shop is refused, and a legitimate customer has no recourse
+   * and no idea why.
+   *
+   * The per-EMAIL limit below is what actually stops a nuisance — a script
+   * hammering the form usually uses one address, or no valid one — so this one
+   * can be generous. Twenty an hour is still a script's submissions failing long
+   * before they amount to a mailbomb.
+   */
+  contact: { limit: 20, windowSeconds: 60 * 60 },
+  /**
+   * Contact messages per sender address.
+   *
+   * The reason this exists separately: keying only on IP either blocks a shared
+   * office or, if raised far enough to avoid that, lets one person send fifty
+   * messages. Keyed on the address, a nuisance sender is stopped precisely and
+   * nobody else is affected.
+   */
+  contactPerEmail: { limit: 4, windowSeconds: 60 * 60 },
   /** Password reset requests per email. */
   passwordReset: { limit: 5, windowSeconds: 60 * 60 },
   /** Read-only search, generous: this is browsing, not abuse. */
@@ -110,4 +133,31 @@ export async function enforceRateLimit(
 
 export async function clearRateLimit(key: string): Promise<void> {
   await db().prepare('DELETE FROM rate_limits WHERE key = ?1').bind(key).run();
+}
+
+/**
+ * Remove buckets whose window has passed.
+ *
+ * WHY THIS IS NEEDED
+ *
+ * Every distinct key leaves a row forever: an IP that visited once, an email
+ * that tried a password once. The counters are only meaningful WITHIN their
+ * window — a row whose window has rolled over is reset on next use — so a row
+ * older than its own window is dead weight, and it accumulates one per visitor.
+ *
+ * That is the same shape of leak as the carts table, and it is worth fixing
+ * before it is a problem rather than after. A bucket is safe to delete once
+ * `window_start` is older than the longest window, because any request for that
+ * key afterwards creates a fresh row and counts from one — which is exactly what
+ * it would have done anyway.
+ */
+export async function pruneRateLimits(): Promise<number> {
+  const longestWindowSeconds = Math.max(
+    ...Object.values(RATE_LIMITS).map((rule) => rule.windowSeconds)
+  );
+  const result = await db()
+    .prepare(`DELETE FROM rate_limits WHERE window_start <= datetime('now', '-' || ?1 || ' seconds')`)
+    .bind(longestWindowSeconds)
+    .run();
+  return (result.meta?.['changes'] as number) ?? 0;
 }

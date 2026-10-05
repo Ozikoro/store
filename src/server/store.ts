@@ -609,8 +609,6 @@ export const sendContactMessage = createServerFn({ method: 'POST' })
   })
   .handler(async ({ data }): Promise<ContactResponse> => {
     const { ipHash } = await helpers();
-    await enforceRateLimit(`contact:${ipHash()}`, RATE_LIMITS.contact);
-
     const name = readString(data, 'name');
     const email = readString(data, 'email');
     const topic = readString(data, 'topic');
@@ -626,6 +624,16 @@ export const sendContactMessage = createServerFn({ method: 'POST' })
     // Derived from a random source, not from the content: two identical messages
     // are two messages, and a hash of the body would collide them.
     const id = `msg_${sha256(`${Date.now()}:${email}:${Math.random()}`).slice(0, 24)}`;
+    // TWO KEYS, for two different abuses.
+    //
+    // Per IP, generous, because a shared office or a carrier's NAT is one
+    // address and five messages an hour between everyone behind it refuses a
+    // real customer with no explanation. Per EMAIL, tight, because a nuisance
+    // sender uses one address — so the precise key is the one that is strict,
+    // and nobody sharing an address is punished for it.
+    await enforceRateLimit(`contact:${ipHash()}`, RATE_LIMITS.contact);
+    await enforceRateLimit(`contact:email:${normaliseEmail(email)}`, RATE_LIMITS.contactPerEmail);
+
     await db()
       .prepare('INSERT INTO contact_messages (id, name, email, topic, message) VALUES (?1,?2,?3,?4,?5)')
       .bind(id, name.trim(), normaliseEmail(email), topic, message.trim())
