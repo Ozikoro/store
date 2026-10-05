@@ -28,9 +28,8 @@
 
 import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
-import path from 'node:path';
+import { startBrowser, sleep } from './lib/browser.mjs';
 
-const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const index = process.argv.indexOf('--url');
 const BASE = (index === -1 ? 'https://shop.ozikoro.com' : process.argv[index + 1]).replace(/\/+$/, '');
 const shotsIndex = process.argv.indexOf('--shots');
@@ -44,7 +43,6 @@ if (!EMAIL || !PASSWORD) {
 }
 
 fs.mkdirSync(SHOTS, { recursive: true });
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const results = [];
 function check(name, ok, detail = '') {
@@ -59,128 +57,57 @@ const TITLE = `E2E Probe ${STAMP}`;
 const PRICE_NAIRA = 1234;
 const EDITED_PRICE_NAIRA = 4321;
 
-const port = 9860 + Math.floor(Math.random() * 30);
-const chrome = spawn(
-  CHROME,
-  [
-    '--headless=old',
-    '--disable-gpu',
-    '--no-sandbox',
-    '--no-first-run',
-    '--no-default-browser-check',
-    `--remote-debugging-port=${port}`,
-    `--user-data-dir=/tmp/cdp-catalog-${port}`,
-    '--window-size=1440,1200',
-    'about:blank',
-  ],
-  { stdio: 'ignore' }
-);
-
-let target = null;
-for (let i = 0; i < 50 && !target; i += 1) {
-  await sleep(300);
-  try {
-    const list = await (await fetch(`http://127.0.0.1:${port}/json`)).json();
-    target = list.find((entry) => entry.type === 'page' && entry.webSocketDebuggerUrl);
-  } catch {
-    // not listening yet
-  }
-}
-if (!target) {
-  console.error('could not attach to Chrome');
-  chrome.kill();
-  process.exit(1);
-}
-
-const ws = new WebSocket(target.webSocketDebuggerUrl);
-await new Promise((resolve) => ws.addEventListener('open', resolve));
-
-let messageId = 0;
-const pending = new Map();
-ws.addEventListener('message', (event) => {
-  const message = JSON.parse(event.data);
-  if (message.id && pending.has(message.id)) {
-    pending.get(message.id)(message);
-    pending.delete(message.id);
-  }
-});
-const send = (method, params) =>
-  new Promise((resolve) => {
-    const id = ++messageId;
-    pending.set(id, resolve);
-    ws.send(JSON.stringify({ id, method, params }));
-  });
-
-async function evaluate(expression) {
-  const response = await send('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true });
-  if (response?.result?.exceptionDetails) throw new Error(response.result.exceptionDetails.text);
-  return response?.result?.result?.value;
-}
-
-async function goto(url, settle = 1500) {
-  await send('Page.navigate', { url });
-  for (let i = 0; i < 80; i += 1) {
-    await sleep(250);
-    if (await evaluate("document.readyState === 'complete'")) break;
-  }
-  await sleep(settle);
-}
-
-/** Wait until a selector exists, so client-side loads are not raced. */
-async function waitFor(selector, attempts = 60) {
-  for (let i = 0; i < attempts; i += 1) {
-    if (await evaluate(`!!document.querySelector(${JSON.stringify(selector)})`)) return true;
-    await sleep(400);
-  }
-  return false;
-}
-
-async function shot(name) {
-  const response = await send('Page.captureScreenshot', { format: 'png' });
-  if (response?.result?.data) {
-    fs.writeFileSync(path.join(SHOTS, `${name}.png`), Buffer.from(response.result.data, 'base64'));
-  }
-}
-
-/** Fill a controlled field the way typing does, so React sees the change. */
-const fill = (selector, value) => `(() => {
-  const el = document.querySelector(${JSON.stringify(selector)});
-  if (!el) return false;
-  const proto = el.tagName === 'SELECT' ? window.HTMLSelectElement.prototype
-    : el.tagName === 'TEXTAREA' ? window.HTMLTextAreaElement.prototype
-    : window.HTMLInputElement.prototype;
-  Object.getOwnPropertyDescriptor(proto, 'value').set.call(el, ${JSON.stringify(String(value))});
-  el.dispatchEvent(new Event('input', { bubbles: true }));
-  el.dispatchEvent(new Event('change', { bubbles: true }));
-  return true;
-})()`;
-
-/** Click and report whether anything was there to click. */
-const click = (selector) => `(() => {
-  const el = document.querySelector(${JSON.stringify(selector)});
-  if (!el) return false;
-  el.click();
-  return true;
-})()`;
-
-/** The storefront's view of a product, asked of the server rather than the browser. */
-async function storefront(pathname) {
-  const response = await fetch(`${BASE}${pathname}`);
-  const html = await response.text();
-  const body = (html.match(/<main[\s\S]*?<\/main>/) ?? [''])[0];
-  return { status: response.status, html, text: body.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ') };
-}
-
-await send('Page.enable');
-await send('Runtime.enable');
+// One shared session: it asks the operating system for a free port and retries
+// the launch. See `scripts/lib/browser.mjs` — guessing a port from a fixed range
+// made chained runs collide, and a suite then reported the STORE as broken.
+const session = await startBrowser({ label: 'cat', shots: SHOTS, windowSize: '1440,1200' });
+// `click` and `fill` return EXPRESSIONS for `evaluate`, not promises.
+const { evaluate, goto, waitFor, click, fill, shot, close, send } = session;
 
 let createdProduct = false;
+/** The shop's stock before this run, so neutrality can be asserted. */
+let stockBefore = null;
+
+/**
+ * The shop's total stock, read straight from the API.
+ *
+ * Used only to prove this suite is stock-neutral. It is read before the run and
+ * again after, and a mismatch is a FAILURE — because that is exactly how 56 units
+ * of real inventory disappeared unnoticed.
+ */
+async function readTotalStock() {
+  const token = process.env['CLOUDFLARE_API_TOKEN'];
+  const account = process.env['CLOUDFLARE_ACCOUNT_ID'];
+  const database = process.env['STORE_DATABASE'] ?? 'ozikoro-store';
+  if (!token || !account) return null;
+  try {
+    const list = await (await fetch(`https://api.cloudflare.com/client/v4/accounts/${account}/d1/database`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })).json();
+    const id = (list?.result ?? []).find((entry) => entry.name === database)?.uuid;
+    if (!id) return null;
+    const body = await (await fetch(
+      `https://api.cloudflare.com/client/v4/accounts/${account}/d1/database/${id}/query`,
+      {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sql: 'SELECT SUM(stock) AS stock FROM product_variants' }),
+      }
+    )).json();
+    const value = body?.result?.[0]?.results?.[0]?.stock;
+    return value === undefined || value === null ? null : Number(value);
+  } catch {
+    return null;
+  }
+}
 /** The slug the product actually has. The editor REWRITES a slug, so the slug the
  *  test chose is not necessarily the slug the home of the product. Cleanup must
  *  use the real one or it silently archives nothing. */
 let actualSlug = SLUG;
 
 try {
+  stockBefore = await readTotalStock();
+
   // ---------------------------------------------------------------- sign in
   await goto(`${BASE}/account`);
   await waitFor('[data-testid="account-email"]');
@@ -420,6 +347,13 @@ try {
       ['scripts/purge-test-products.mjs', '--yes'],
       { cwd: process.cwd(), encoding: 'utf8', env: process.env }
     );
+    // `purge-test-products.mjs` talks to D1 directly, so it needs the Cloudflare
+    // credentials. Spawning it without them printed "must be set" and removed
+    // nothing, which the check below then reported — correctly — as a product
+    // still on the storefront.
+    if ((purge.stdout ?? '').includes('must be set')) {
+      console.error('\n      cleanup: CLOUDFLARE_API_TOKEN/CLOUDFLARE_ACCOUNT_ID are not in this shell.');
+    }
     const summary = (purge.stdout ?? '').trim().split('\n').filter(Boolean).slice(-2).join(' | ');
     console.log(`\n      cleanup: ${summary || purge.stderr?.trim() || 'nothing to remove'}`);
     const stillThere = await fetch(`${BASE}/products/${actualSlug}`, { redirect: 'manual' });
@@ -428,6 +362,19 @@ try {
       stillThere.status !== 200,
       stillThere.status === 200 ? `${actualSlug} is STILL on the storefront` : ''
     );
+
+    // STOCK NEUTRALITY. The suite creates a product and a variant; if it leaves
+    // the shop with less stock than it found, it is consuming real inventory.
+    const stockAfter = await readTotalStock();
+    if (stockBefore !== null && stockAfter !== null) {
+      check(
+        'the suite left the stock exactly as it found it',
+        stockAfter === stockBefore,
+        `${stockBefore} -> ${stockAfter}`
+      );
+    } else {
+      console.log('      (stock neutrality not checked: CLOUDFLARE_API_TOKEN is not in this shell)');
+    }
   } catch (error) {
     console.error('cleanup failed:', error instanceof Error ? error.message : error);
   }
@@ -436,7 +383,6 @@ try {
   console.log(`\n${results.length - failed.length}/${results.length} checks passed.`);
   for (const result of failed) console.log(`  - ${result.name}: ${result.detail}`);
   console.log(`Screenshots in ${SHOTS}/`);
-  ws.close();
-  chrome.kill();
+    await close();
   process.exit(failed.length ? 1 : 0);
 }

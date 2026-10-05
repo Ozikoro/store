@@ -46,3 +46,4 @@ dist-ssr
 .e2e-checkout/
 .e2e-admin-catalog/
 .e2e-admin-catalog/
+.owner-password

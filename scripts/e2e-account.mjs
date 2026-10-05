@@ -1,30 +1,12 @@
-#!/usr/bin/env node
-/**
- * End-to-end check of the signed-in surfaces: the customer account and the
- * admin dashboard.
- *
- * This runs after `scripts/e2e.mjs`, which covers the anonymous storefront. It
- * signs in as a real account and exercises the paths that need a session — which
- * cannot be reached with curl, because the server functions sit behind a CSRF
- * filter that (correctly) rejects a request without the site's own Origin.
- *
- * Usage:
- *   E2E_EMAIL=hello@ozikoro.com E2E_PASSWORD='…' node scripts/e2e-account.mjs \
- *     [--url https://shop.ozikoro.com] [--shots .e2e-account]
- */
-
-import { spawn } from 'node:child_process';
 import fs from 'node:fs';
-import path from 'node:path';
-
-const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+import { startBrowser, sleep } from './lib/browser.mjs';
 
 function arg(name, fallback) {
   const index = process.argv.indexOf(`--${name}`);
   return index === -1 ? fallback : process.argv[index + 1];
 }
 
-const BASE = arg('url', 'https://shop.ozikoro.com').replace(/\/$/, '');
+const BASE = arg('url', 'https://shop.ozikoro.com').replace(/\/+$/, '');
 const SHOTS = arg('shots', '.e2e-account');
 const EMAIL = process.env['E2E_EMAIL'] ?? '';
 const PASSWORD = process.env['E2E_PASSWORD'] ?? '';
@@ -34,95 +16,16 @@ if (!EMAIL || !PASSWORD) {
   process.exit(2);
 }
 
-fs.mkdirSync(SHOTS, { recursive: true });
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
-const port = 9900 + Math.floor(Math.random() * 90);
-const chrome = spawn(
-  CHROME,
-  [
-    '--headless=old',
-    '--disable-gpu',
-    '--no-sandbox',
-    '--no-first-run',
-    '--no-default-browser-check',
-    `--remote-debugging-port=${port}`,
-    `--user-data-dir=/tmp/cdp-acct-${port}`,
-    '--window-size=1440,1000',
-    'about:blank',
-  ],
-  { stdio: 'ignore' }
-);
-
-let target = null;
-for (let i = 0; i < 50 && !target; i += 1) {
-  await sleep(300);
-  try {
-    const list = await (await fetch(`http://127.0.0.1:${port}/json`)).json();
-    target = list.find((entry) => entry.type === 'page' && entry.webSocketDebuggerUrl);
-  } catch {
-    // not listening yet
-  }
-}
-if (!target) {
-  console.error('could not attach to Chrome');
-  chrome.kill();
-  process.exit(1);
-}
-
-const ws = new WebSocket(target.webSocketDebuggerUrl);
-await new Promise((resolve) => ws.addEventListener('open', resolve));
-
-let messageId = 0;
-const pending = new Map();
-const consoleErrors = [];
-ws.addEventListener('message', (event) => {
-  const message = JSON.parse(event.data);
-  if (message.id && pending.has(message.id)) {
-    pending.get(message.id)(message);
-    pending.delete(message.id);
-  }
-  if (message.method === 'Runtime.consoleAPICalled' && message.params.type === 'error') {
-    consoleErrors.push(message.params.args.map((a) => a.value ?? a.description ?? '').join(' '));
-  }
-});
-const send = (method, params) =>
-  new Promise((resolve) => {
-    const id = ++messageId;
-    pending.set(id, resolve);
-    ws.send(JSON.stringify({ id, method, params }));
-  });
-
-async function evaluate(expression) {
-  const response = await send('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true });
-  if (response?.result?.exceptionDetails) throw new Error(response.result.exceptionDetails.text);
-  return response?.result?.result?.value;
-}
-
-async function goto(url) {
-  await send('Page.navigate', { url });
-  for (let i = 0; i < 80; i += 1) {
-    await sleep(250);
-    if (await evaluate("document.readyState === 'complete' && !!document.querySelector('main')")) break;
-  }
-  await sleep(700);
-}
-
-async function shot(name) {
-  const response = await send('Page.captureScreenshot', { format: 'png' });
-  if (response?.result?.data) {
-    fs.writeFileSync(path.join(SHOTS, `${name}.png`), Buffer.from(response.result.data, 'base64'));
-  }
-}
+// The shared session allocates its own free port and retries the launch; see
+// `scripts/lib/browser.mjs` for why guessing a port broke chained runs.
+const session = await startBrowser({ label: 'acct', shots: SHOTS, windowSize: '1440,1000' });
+const { evaluate, goto, waitFor, shot, close } = session;
 
 const results = [];
 function check(name, ok, detail = '') {
   results.push({ name, ok, detail });
   console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${detail ? `  — ${detail}` : ''}`);
 }
-
-await send('Page.enable');
-await send('Runtime.enable');
 
 try {
   // 1. Sign in through the real form.
@@ -170,9 +73,28 @@ try {
     ['permissions', '/admin/permissions', 'Permissions'],
   ]) {
     await goto(`${BASE}${url}`);
+    // The admin shell resolves the session on the CLIENT, so the first paint says
+    // "Checking your access…". Reading the page immediately reported a screen that
+    // was still loading as broken — it happened about once in three chained runs.
+    //
+    // The screens themselves are fast: measured against production, every one of
+    // these settles in under a second. So a screen still resolving after a long
+    // wait is transient browser slowness, not the store — and it gets ONE reload
+    // before being called a failure, because a flaky harness teaches people to
+    // ignore the suite.
+    let settled = await waitFor('[data-testid="admin-page-title"]', 40);
+    if (!settled) {
+      await goto(`${BASE}${url}`, 400);
+      settled = await waitFor('[data-testid="admin-page-title"]', 40);
+    }
     const text = await evaluate('document.body.innerText');
-    const ok = (text ?? '').includes(needle) && !(text ?? '').includes('AdminNot authorised');
-    check(`admin ${label} screen loads`, ok, ok ? '' : (text ?? '').slice(0, 70).replace(/\n/g, ' '));
+    const stillChecking = /Checking your access/i.test(text ?? '');
+    const ok = (text ?? '').includes(needle) && !stillChecking && !(text ?? '').includes('AdminNot authorised');
+    check(
+      `admin ${label} screen loads`,
+      ok,
+      ok ? '' : stillChecking ? 'still resolving access after two attempts' : (text ?? '').slice(0, 70).replace(/\n/g, ' ')
+    );
   }
   await shot('03-admin-permissions');
 
@@ -193,10 +115,24 @@ try {
   //
   // Each of these asserts on something only the DETAIL page has.
   await goto(`${BASE}/admin/orders`);
-  const firstOrder = await evaluate(
+  // The list is a CLIENT-side query with a status filter, so it is empty on the
+  // first paint and a cancelled test order may not match the default. Wait for a
+  // row, and ask for every status so the check does not depend on which orders
+  // happen to be left over from earlier runs.
+  await waitFor('[data-testid^="order-row-"]', 40);
+  let firstOrder = await evaluate(
     `document.querySelector('[data-testid^="order-row-"]')?.getAttribute('data-testid')?.replace('order-row-','') ?? ''`
   );
-  check('the orders list offers an order to open', firstOrder.length > 0, firstOrder || 'none listed');
+  if (!firstOrder) {
+    // Nothing matched the default filter; widen it and try once more.
+    await fill('[data-testid="orders-status"]', 'all');
+    await click('[data-testid="orders-filter-submit"]');
+    await waitFor('[data-testid^="order-row-"]', 40);
+    firstOrder = await evaluate(
+      `document.querySelector('[data-testid^="order-row-"]')?.getAttribute('data-testid')?.replace('order-row-','') ?? ''`
+    );
+  }
+  check('the orders list offers an order to open', firstOrder.length > 0, firstOrder || 'none listed after widening the filter');
 
   if (firstOrder) {
     await goto(`${BASE}/admin/orders/${firstOrder}`);
@@ -229,10 +165,25 @@ try {
   }
 
   await goto(`${BASE}/admin/products`);
-  const firstProduct = await evaluate(
+  // Same as the orders list: a client-side query with a status filter, so it is
+  // empty on the first paint and the default filter may exclude everything.
+  await waitFor('[data-testid^="product-row-"]', 40);
+  let firstProduct = await evaluate(
     `document.querySelector('[data-testid^="product-row-"]')?.getAttribute('data-testid')?.replace('product-row-','') ?? ''`
   );
-  check('the products list offers a product to open', firstProduct.length > 0, firstProduct || 'none listed');
+  if (!firstProduct) {
+    await fill('[data-testid="products-status"]', 'all');
+    await click('[data-testid="products-filter-submit"]');
+    await waitFor('[data-testid^="product-row-"]', 40);
+    firstProduct = await evaluate(
+      `document.querySelector('[data-testid^="product-row-"]')?.getAttribute('data-testid')?.replace('product-row-','') ?? ''`
+    );
+  }
+  check(
+    'the products list offers a product to open',
+    firstProduct.length > 0,
+    firstProduct || 'none listed after widening the filter'
+  );
 
   if (firstProduct) {
     await goto(`${BASE}/admin/products/${firstProduct}`);
@@ -260,7 +211,13 @@ try {
   // The rows arrive from a client-side query, so they are NOT in the first HTML.
   // Reading the DOM immediately saw "Loading the trail…" and reported an empty
   // log. Wait for a row or for the screen to say there is nothing.
-  for (let i = 0; i < 30; i += 1) {
+  //
+  // The wait is longer than it looks like it needs to be, on purpose. The shell
+  // resolves access first and only then fires the audit query, so this screen is
+  // two round trips behind the others — and it was the one still flaking in a
+  // chained run. A screen that is genuinely empty says so, which is also accepted
+  // here, so waiting longer cannot turn a real failure into a pass.
+  for (let i = 0; i < 60; i += 1) {
     const ready = await evaluate(`(() => {
       const hasRow = !!document.querySelector('[data-testid^="audit-entry-"]');
       const saysEmpty = /Nothing has been recorded/i.test(document.querySelector('main')?.innerText ?? '');
@@ -295,7 +252,7 @@ try {
   await shot('05-admin-audit');
 
   // 8. No console errors on the signed-in path either.
-  const realErrors = consoleErrors.filter((line) => !/favicon|fonts\.googleapis/.test(line));
+  const realErrors = session.consoleErrors.filter((line) => !/favicon|fonts\.googleapis/.test(line));
   check('no console errors while signed in', realErrors.length === 0, realErrors.slice(0, 2).join(' | '));
 
   // 9. Signing out takes the admin link away again.
@@ -316,7 +273,6 @@ try {
   console.log(`\n${results.length - failed.length}/${results.length} checks passed.`);
   for (const result of failed) console.log(`  - ${result.name}: ${result.detail}`);
   console.log(`Screenshots in ${SHOTS}/`);
-  ws.close();
-  chrome.kill();
+  await close();
   process.exit(failed.length ? 1 : 0);
 }

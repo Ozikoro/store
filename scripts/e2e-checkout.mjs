@@ -34,11 +34,9 @@
  * as it found it.
  */
 
-import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 
-const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const index = process.argv.indexOf('--url');
 const BASE = (index === -1 ? 'https://shop.ozikoro.com' : process.argv[index + 1]).replace(/\/+$/, '');
 const shotsIndex = process.argv.indexOf('--shots');
@@ -49,7 +47,14 @@ const PASSWORD = process.env['E2E_PASSWORD'] ?? '';
 const CANCEL_AFTER = process.argv.includes('--cancel');
 
 fs.mkdirSync(SHOTS, { recursive: true });
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+import { startBrowser, sleep } from './lib/browser.mjs';
+
+// One shared session: it asks the operating system for a free port and retries
+// the launch. See `scripts/lib/browser.mjs` — guessing a port from a fixed range
+// made chained runs collide, and a suite then reported the STORE as broken.
+const session = await startBrowser({ label: 'chk', shots: SHOTS, windowSize: '1440,1100' });
+// `click` and `fill` return EXPRESSIONS for `evaluate`, not promises.
+const { evaluate, goto, waitFor, click, fill, shot, close, send } = session;
 
 const results = [];
 function check(name, ok, detail = '') {
@@ -57,93 +62,6 @@ function check(name, ok, detail = '') {
   console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${detail ? `  — ${detail}` : ''}`);
 }
 
-const port = 9940 + Math.floor(Math.random() * 30);
-const chrome = spawn(
-  CHROME,
-  [
-    '--headless=old',
-    '--disable-gpu',
-    '--no-sandbox',
-    '--no-first-run',
-    '--no-default-browser-check',
-    `--remote-debugging-port=${port}`,
-    `--user-data-dir=/tmp/cdp-checkout-${port}`,
-    '--window-size=1440,1100',
-    'about:blank',
-  ],
-  { stdio: 'ignore' }
-);
-
-let target = null;
-for (let i = 0; i < 50 && !target; i += 1) {
-  await sleep(300);
-  try {
-    const list = await (await fetch(`http://127.0.0.1:${port}/json`)).json();
-    target = list.find((entry) => entry.type === 'page' && entry.webSocketDebuggerUrl);
-  } catch {
-    // not listening yet
-  }
-}
-if (!target) {
-  console.error('could not attach to Chrome');
-  chrome.kill();
-  process.exit(1);
-}
-
-const ws = new WebSocket(target.webSocketDebuggerUrl);
-await new Promise((resolve) => ws.addEventListener('open', resolve));
-
-let messageId = 0;
-const pending = new Map();
-ws.addEventListener('message', (event) => {
-  const message = JSON.parse(event.data);
-  if (message.id && pending.has(message.id)) {
-    pending.get(message.id)(message);
-    pending.delete(message.id);
-  }
-});
-const send = (method, params) =>
-  new Promise((resolve) => {
-    const id = ++messageId;
-    pending.set(id, resolve);
-    ws.send(JSON.stringify({ id, method, params }));
-  });
-
-async function evaluate(expression) {
-  const response = await send('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true });
-  if (response?.result?.exceptionDetails) throw new Error(response.result.exceptionDetails.text);
-  return response?.result?.result?.value;
-}
-
-async function goto(url) {
-  await send('Page.navigate', { url });
-  for (let i = 0; i < 80; i += 1) {
-    await sleep(250);
-    if (await evaluate("document.readyState === 'complete' && !!document.querySelector('main')")) break;
-  }
-  await sleep(700);
-}
-
-async function shot(name) {
-  const response = await send('Page.captureScreenshot', { format: 'png' });
-  if (response?.result?.data) {
-    fs.writeFileSync(path.join(SHOTS, `${name}.png`), Buffer.from(response.result.data, 'base64'));
-  }
-}
-
-/** Fill a controlled field the way typing does. */
-const fill = (selector, value) => `(() => {
-  const el = document.querySelector(${JSON.stringify(selector)});
-  if (!el) return false;
-  const proto = el.tagName === 'SELECT' ? window.HTMLSelectElement.prototype : window.HTMLInputElement.prototype;
-  Object.getOwnPropertyDescriptor(proto, 'value').set.call(el, ${JSON.stringify(value)});
-  el.dispatchEvent(new Event('input', { bubbles: true }));
-  el.dispatchEvent(new Event('change', { bubbles: true }));
-  return true;
-})()`;
-
-await send('Page.enable');
-await send('Runtime.enable');
 
 try {
   // 1. Put something in the cart, as a customer would.
@@ -235,8 +153,7 @@ try {
   console.log(`\n${results.length - failed.length}/${results.length} checks passed.`);
   for (const result of failed) console.log(`  - ${result.name}: ${result.detail}`);
   console.log(`Screenshots in ${SHOTS}/`);
-  ws.close();
-  chrome.kill();
+    await close();
   process.exit(failed.length ? 1 : 0);
 }
 

@@ -28,11 +28,8 @@
  *   node scripts/e2e.mjs [--url http://127.0.0.1:8787] [--shots .e2e]
  */
 
-import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-
-const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 
 function arg(name, fallback) {
   const index = process.argv.indexOf(`--${name}`);
@@ -41,98 +38,22 @@ function arg(name, fallback) {
 
 const BASE = arg('url', 'http://127.0.0.1:8787').replace(/\/$/, '');
 const SHOTS = arg('shots', '.e2e');
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 fs.mkdirSync(SHOTS, { recursive: true });
+import { startBrowser, sleep } from './lib/browser.mjs';
+
+// One shared session: it asks the operating system for a free port and retries
+// the launch. See `scripts/lib/browser.mjs` — guessing a port from a fixed range
+// made chained runs collide, and a suite then reported the STORE as broken.
+const session = await startBrowser({ label: 'store', shots: SHOTS, windowSize: '1440,1000' });
+// `click` and `fill` return EXPRESSIONS for `evaluate`, not promises.
+const { evaluate, goto, waitFor, click, fill, shot, close, send } = session;
 
 // ---------------------------------------------------------------- the browser
 
-const port = 9800 + Math.floor(Math.random() * 200);
-const chrome = spawn(
-  CHROME,
-  [
-    '--headless=old',
-    '--disable-gpu',
-    '--no-sandbox',
-    '--no-first-run',
-    '--no-default-browser-check',
-    `--remote-debugging-port=${port}`,
-    `--user-data-dir=/tmp/cdp-e2e-${port}`,
-    '--window-size=1440,1000',
-    'about:blank',
-  ],
-  { stdio: 'ignore' }
-);
-
-let target = null;
-for (let i = 0; i < 50 && !target; i += 1) {
-  await sleep(300);
-  try {
-    const list = await (await fetch(`http://127.0.0.1:${port}/json`)).json();
-    target = list.find((entry) => entry.type === 'page' && entry.webSocketDebuggerUrl);
-  } catch {
-    // Chrome is not listening yet.
-  }
-}
-if (!target) {
-  console.error('could not attach to Chrome');
-  chrome.kill();
-  process.exit(1);
-}
-
-const ws = new WebSocket(target.webSocketDebuggerUrl);
-await new Promise((resolve) => ws.addEventListener('open', resolve));
-
-let messageId = 0;
-const pending = new Map();
 const consoleErrors = [];
-ws.addEventListener('message', (event) => {
-  const message = JSON.parse(event.data);
-  if (message.id && pending.has(message.id)) {
-    pending.get(message.id)(message);
-    pending.delete(message.id);
-  }
-  if (message.method === 'Runtime.consoleAPICalled' && message.params.type === 'error') {
-    consoleErrors.push(message.params.args.map((a) => a.value ?? a.description ?? '').join(' '));
-  }
-});
-const send = (method, params) =>
-  new Promise((resolve) => {
-    const id = ++messageId;
-    pending.set(id, resolve);
-    ws.send(JSON.stringify({ id, method, params }));
-  });
 
 /** Evaluate an expression in the page and return its value. */
-async function evaluate(expression) {
-  const response = await send('Runtime.evaluate', {
-    expression,
-    returnByValue: true,
-    awaitPromise: true,
-  });
-  if (response?.result?.exceptionDetails) {
-    throw new Error(response.result.exceptionDetails.text ?? 'page evaluation failed');
-  }
-  return response?.result?.result?.value;
-}
-
-async function goto(url) {
-  await send('Page.navigate', { url });
-  // Wait for the document and for React to have hydrated something.
-  for (let i = 0; i < 60; i += 1) {
-    await sleep(250);
-    const ready = await evaluate("document.readyState === 'complete' && !!document.querySelector('main')");
-    if (ready) break;
-  }
-  await sleep(600);
-}
-
-async function shot(name) {
-  const response = await send('Page.captureScreenshot', { format: 'png' });
-  if (response?.result?.data) {
-    fs.writeFileSync(path.join(SHOTS, `${name}.png`), Buffer.from(response.result.data, 'base64'));
-  }
-}
 
 // ------------------------------------------------------------------- the run
 
@@ -141,9 +62,6 @@ function check(name, ok, detail = '') {
   results.push({ name, ok, detail });
   console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${detail ? `  — ${detail}` : ''}`);
 }
-
-await send('Page.enable');
-await send('Runtime.enable');
 
 try {
   // 1. Home renders from the database.
@@ -277,7 +195,7 @@ try {
   check('an unknown product is not a blank page', (notFoundBody ?? '').length > 20, (notFoundBody ?? '').slice(0, 60));
 
   // 12. No console errors on the way through.
-  const realErrors = consoleErrors.filter((line) => !/favicon|fonts\.googleapis/.test(line));
+  const realErrors = session.consoleErrors.filter((line) => !/favicon|fonts\.googleapis/.test(line));
   check('no console errors during the run', realErrors.length === 0, realErrors.slice(0, 2).join(' | '));
 
   // 13. Mobile: the checkout must be usable at 390px without horizontal scroll.
@@ -307,7 +225,6 @@ try {
     for (const result of failed) console.log(`  - ${result.name}: ${result.detail}`);
   }
   console.log(`Screenshots in ${SHOTS}/`);
-  ws.close();
-  chrome.kill();
+    await close();
   process.exit(failed.length ? 1 : 0);
 }

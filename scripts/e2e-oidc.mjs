@@ -32,12 +32,11 @@
  *     [--url https://shop.ozikoro.com] [--client-id ozk_…] [--client-secret …]
  */
 
-import { spawn } from 'node:child_process';
+import { sleep, startBrowser } from './lib/browser.mjs';
 import { createHash, createPublicKey, createVerify, randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
-const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const ISSUER = (process.env['STORE_ORIGIN'] ?? arg('url', 'https://shop.ozikoro.com')).replace(/\/+$/, '');
 
 function arg(name, fallback) {
@@ -61,7 +60,6 @@ if (!CLIENT_ID) {
 }
 
 fs.mkdirSync(SHOTS, { recursive: true });
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const results = [];
 function check(name, ok, detail = '') {
@@ -137,85 +135,26 @@ async function protocolChecks(redirectUri) {
 
 // ------------------------------------------------------------------ browser
 
+/**
+ * Run the browser half of the suite in a shared session.
+ *
+ * The port is allocated by the operating system rather than guessed: the old
+ * hard-coded 9950 range collided with the other suites when they were run in
+ * sequence, and the failure looked like the store being broken.
+ */
 async function withBrowser(run) {
-  const port = 9950 + Math.floor(Math.random() * 40);
-  const chrome = spawn(
-    CHROME,
-    [
-      '--headless=old',
-      '--disable-gpu',
-      '--no-sandbox',
-      '--no-first-run',
-      '--no-default-browser-check',
-      `--remote-debugging-port=${port}`,
-      `--user-data-dir=/tmp/cdp-oidc-${port}`,
-      '--window-size=1280,900',
-      'about:blank',
-    ],
-    { stdio: 'ignore' }
-  );
-
-  let target = null;
-  for (let i = 0; i < 50 && !target; i += 1) {
-    await sleep(300);
-    try {
-      const list = await (await fetch(`http://127.0.0.1:${port}/json`)).json();
-      target = list.find((entry) => entry.type === 'page' && entry.webSocketDebuggerUrl);
-    } catch {
-      // not listening yet
-    }
-  }
-  if (!target) {
-    chrome.kill();
-    throw new Error('could not attach to Chrome');
-  }
-
-  const ws = new WebSocket(target.webSocketDebuggerUrl);
-  await new Promise((resolve) => ws.addEventListener('open', resolve));
-
-  let messageId = 0;
-  const pending = new Map();
-  let currentUrl = 'about:blank';
-  const navigations = [];
-
-  ws.addEventListener('message', (event) => {
-    const message = JSON.parse(event.data);
-    if (message.id && pending.has(message.id)) {
-      pending.get(message.id)(message);
-      pending.delete(message.id);
-    }
-    if (message.method === 'Page.frameNavigated' && !message.params.frame.parentId) {
-      currentUrl = message.params.frame.url;
-      navigations.push(currentUrl);
-    }
-  });
-
-  const send = (method, params) =>
-    new Promise((resolve) => {
-      const id = ++messageId;
-      pending.set(id, resolve);
-      ws.send(JSON.stringify({ id, method, params }));
+  const session = await startBrowser({ label: 'oidc', shots: SHOTS, windowSize: '1280,900' });
+  try {
+    await run({
+      send: session.send,
+      evaluate: session.evaluate,
+      shot: session.shot,
+      url: session.url,
+      navigations: session.navigations,
     });
-
-  const evaluate = async (expression) => {
-    const response = await send('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true });
-    if (response?.result?.exceptionDetails) throw new Error(response.result.exceptionDetails.text);
-    return response?.result?.result?.value;
-  };
-
-  const shot = async (name) => {
-    const response = await send('Page.captureScreenshot', { format: 'png' });
-    if (response?.result?.data) {
-      fs.writeFileSync(path.join(SHOTS, `${name}.png`), Buffer.from(response.result.data, 'base64'));
-    }
-  };
-
-  await send('Page.enable');
-  await send('Runtime.enable');
-
-  await run({ send, evaluate, shot, url: () => currentUrl, navigations });
-  ws.close();
-  chrome.kill();
+  } finally {
+    await session.close();
+  }
 }
 
 /** Fill the store's sign-in form. */
