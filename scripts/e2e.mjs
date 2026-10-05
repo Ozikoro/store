@@ -99,11 +99,24 @@ try {
   await shot('02-product-sold-out');
 
   // 4. Add an in-stock variant to the cart.
+  //
+  // It WAITS FOR THE OUTCOME rather than for a fixed number of milliseconds. The
+  // previous version slept 2.5s and then read the badge, so a request that took
+  // slightly longer reported `badge="none"` — a failure that says nothing about
+  // the store. This is the check that failed intermittently when the suites ran
+  // back to back, and the cause was the test's clock, not the application.
   const added = await evaluate(`(async () => {
-    document.querySelector('[data-testid="variant-OZK-HOD-M"]').click();
+    const variant = document.querySelector('[data-testid="variant-OZK-HOD-M"]');
+    const button = document.querySelector('[data-testid="add-to-cart"]');
+    if (!variant || !button) return 'missing controls';
+    variant.click();
     await new Promise((r) => setTimeout(r, 250));
-    document.querySelector('[data-testid="add-to-cart"]').click();
-    await new Promise((r) => setTimeout(r, 2500));
+    button.click();
+    for (let i = 0; i < 40; i += 1) {
+      const badge = document.querySelector('[data-testid="cart-count"]')?.textContent?.trim() ?? '';
+      if (badge && badge !== '0') return badge;
+      await new Promise((r) => setTimeout(r, 500));
+    }
     return document.querySelector('[data-testid="cart-count"]')?.textContent?.trim() ?? 'none';
   })()`);
   check('adding to the cart updates the badge', added === '1', `badge="${added}"`);
@@ -122,7 +135,14 @@ try {
   // 6. Quantity arithmetic: 2 x ₦34,000 = ₦68,000.
   const afterIncrease = await evaluate(`(async () => {
     document.querySelector('[data-testid="increase-OZK-HOD-M"]').click();
-    await new Promise((r) => setTimeout(r, 2500));
+    // Wait for the subtotal to CHANGE rather than for a fixed delay, for the same
+    // reason as the badge above.
+    const before = document.querySelector('[data-testid="cart-subtotal"]')?.textContent?.trim() ?? '';
+    for (let i = 0; i < 40; i += 1) {
+      const now = document.querySelector('[data-testid="cart-subtotal"]')?.textContent?.trim() ?? '';
+      if (now && now !== before) return now;
+      await new Promise((r) => setTimeout(r, 500));
+    }
     return document.querySelector('[data-testid="cart-subtotal"]')?.textContent?.trim() ?? '';
   })()`);
   check('quantity changes the subtotal exactly', afterIncrease === '₦68,000', afterIncrease);

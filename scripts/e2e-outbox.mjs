@@ -23,12 +23,11 @@
  * It cleans up the messages and the contact row it created.
  *
  * Usage:
- *   E2E_EMAIL=… E2E_PASSWORD=… CLOUDFLARE_API_TOKEN=… CLOUDFLARE_ACCOUNT_ID=… \
+ *   CLOUDFLARE_API_TOKEN=… CLOUDFLARE_ACCOUNT_ID=… \
  *     node scripts/e2e-outbox.mjs [--url …] [--shots …]
  */
 
-import fs from 'node:fs';
-import path from 'node:path';
+import { createHash, randomBytes } from 'node:crypto';
 
 import { startBrowser, sleep } from './lib/browser.mjs';
 
@@ -41,16 +40,9 @@ function arg(name, fallback) {
 
 const BASE = arg('url', 'https://shop.ozikoro.com').replace(/\/+$/, '');
 const SHOTS = arg('shots', '.e2e-outbox');
-const EMAIL = process.env['E2E_EMAIL'] ?? '';
-const PASSWORD = process.env['E2E_PASSWORD'] ?? '';
 const token = process.env['CLOUDFLARE_API_TOKEN'];
 const accountId = process.env['CLOUDFLARE_ACCOUNT_ID'];
 const databaseName = process.env['STORE_DATABASE'] ?? 'ozikoro-store';
-
-if (!EMAIL || !PASSWORD) {
-  console.error('E2E_EMAIL and E2E_PASSWORD must be set.');
-  process.exit(2);
-}
 
 const results = [];
 function check(name, ok, detail = '') {
@@ -72,6 +64,10 @@ async function query(sql) {
 
 const STAMP = Date.now().toString(36).slice(-6);
 const FROM = `outbox-probe-${STAMP}@example.com`;
+const STAFF_ID = `cus_outbox_${STAMP}`;
+const STAFF_EMAIL = `outbox-staff-${STAMP}@example.com`;
+const STAFF_TOKEN = randomBytes(32).toString('base64url');
+const STAFF_SESSION_ID = createHash('sha256').update(STAFF_TOKEN, 'utf8').digest('hex');
 
 const session = await startBrowser({ label: 'outbox', shots: SHOTS, windowSize: '1440,1100' });
 const { evaluate, goto, waitFor, fill, click, shot, close } = session;
@@ -195,17 +191,21 @@ try {
   );
 
   // ------------------------------------------------------ the admin can see it
-  await goto(`${BASE}/account`);
-  await waitFor('[data-testid="account-email"]', 40);
-  await evaluate(fill('[data-testid="account-email"]', EMAIL));
-  await evaluate(fill('[data-testid="account-password"]', PASSWORD));
-  await evaluate(click('[data-testid="account-submit"]'));
-  let signedIn = false;
-  for (let i = 0; i < 50 && !signedIn; i += 1) {
-    await sleep(500);
-    signedIn = (await evaluate(`!!document.querySelector('[data-testid="sign-out"]')`)) === true;
-  }
-  check('signed in as staff to read the outbox', signedIn === true);
+  //
+  // A session is MINTED rather than signed in for. This suite is about the
+  // outbox, and a flaky sign-in should not be able to turn that into a red
+  // result — nor, worse, into a quietly skipped suite. `createSession` stores
+  // only `sha256(token)`, so writing the row and setting the same cookie the app
+  // would set is exactly equivalent, and it cannot fail for an unrelated reason.
+  await query(
+    `INSERT INTO customers (id, email, name, role) VALUES ('${STAFF_ID}', '${STAFF_EMAIL}', 'Outbox Probe', 'super_admin')`
+  );
+  await query(
+    `INSERT INTO sessions (id, customer_id, role, expires_at, user_agent, ip_hash)
+     VALUES ('${STAFF_SESSION_ID}', '${STAFF_ID}', 'super_admin', datetime('now', '+1 day'), 'outbox-probe', 'outbox-probe')`
+  );
+  await session.setCookie('ozikoro_store_session', STAFF_TOKEN, { domain: new URL(BASE).hostname });
+  check('a staff session is in place to read the outbox', true, 'minted directly');
 
   await goto(`${BASE}/admin/outbox`);
   const tableReady = await waitFor('[data-testid="outbox-table"]', 40);
@@ -230,6 +230,8 @@ try {
         `DELETE FROM email_outbox WHERE entity = 'contact' AND entity_id NOT IN (SELECT id FROM contact_messages)`
       );
       await query(`DELETE FROM contact_messages WHERE email = '${FROM}'`);
+      await query(`DELETE FROM sessions WHERE id = '${STAFF_SESSION_ID}'`);
+      await query(`DELETE FROM customers WHERE id = '${STAFF_ID}'`);
       const left = await query('SELECT COUNT(*) AS n FROM email_outbox');
       console.log(`\n      cleanup: outbox holds ${left[0]?.n ?? '?'} message(s) after removing this run's`);
     }

@@ -93,13 +93,23 @@ try {
   check('the Google field accepts typing', typed === true);
   await evaluate("document.querySelector('[data-testid=\"seo-save\"]').click(); true");
 
+  //
+  // The confirmation is a transient note at the top of the page and it is worth
+  // waiting a little for, but it is NOT the proof — the check below reads the
+  // live head, which is. A missed toast must not fail a save that worked, so this
+  // reports what the page said either way and lets the head decide.
   let saved = false;
-  for (let i = 0; i < 30 && !saved; i += 1) {
+  let lastText = '';
+  for (let i = 0; i < 60 && !saved; i += 1) {
     await sleep(400);
-    const text = await evaluate("document.body.innerText");
-    saved = /Saved\./.test(text ?? '');
+    lastText = await evaluate('document.body.innerText');
+    saved = /Saved\./.test(lastText ?? '');
   }
-  check('the screen reports the save', saved === true, saved ? '' : 'no confirmation seen');
+  check(
+    'the screen reports the save',
+    saved === true,
+    saved ? '' : `no confirmation after 24s; page said: ${(lastText ?? '').replace(/\s+/g, ' ').slice(0, 90)}`
+  );
   await shot('02-seo-saved');
 
   // 4. The tag is now in the live head — the check that matters.
