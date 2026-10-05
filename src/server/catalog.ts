@@ -127,10 +127,26 @@ export const getProduct = createServerFn({ method: 'GET' })
     return safe(
       'product',
       async () => {
-        const product = await findProductBySlug(readString(data, 'slug'));
-        if (!product) return { found: false as const };
-        const related = await relatedProducts(product, 3);
-        return { found: true as const, product, related };
+        const slug = readString(data, 'slug');
+
+        // An active product first. Only then look for an archived one, so the
+        // ordinary path is unchanged and there is no ambiguity when a slug has
+        // been reused.
+        const active = await findProductBySlug(slug, 'active');
+        if (active) {
+          const related = await relatedProducts(active, 3);
+          return { found: true as const, product: active, related };
+        }
+
+        const archived = await findProductBySlug(slug, 'archived');
+        if (archived) {
+          const related = await relatedProducts(archived, 3);
+          return { found: true as const, product: archived, related, discontinued: true as const };
+        }
+
+        // A DRAFT is not served at all: it is a product somebody is still
+        // writing, and it must not be reachable by guessing its address.
+        return { found: false as const };
       },
       { found: false as const }
     );
@@ -209,7 +225,25 @@ export type CollectionResult =
   | { found: false };
 
 export type ProductResult =
-  | { found: true; product: NonNullable<Awaited<ReturnType<typeof findProductBySlug>>>; related: Awaited<ReturnType<typeof relatedProducts>> }
+  | {
+      found: true;
+      product: NonNullable<Awaited<ReturnType<typeof findProductBySlug>>>;
+      related: Awaited<ReturnType<typeof relatedProducts>>;
+      /**
+       * True when the product exists but has been ARCHIVED.
+       *
+       * The page still renders, and that is deliberate: the handoff asks for
+       * "useful redirects/archive pages for discontinued products". A 404 throws
+       * away every inbound link, every bookmark and every search result for a
+       * thing that once existed — and the person following one gets nothing, not
+       * even an explanation. An archive page keeps the value and tells them the
+       * truth, with a route to what is still for sale.
+       *
+       * It is marked `noindex, follow`: there is nothing left to buy, so the page
+       * should leave the index, but its links out are good ones.
+       */
+      discontinued?: boolean;
+    }
   | { found: false };
 
 export interface SearchResult {

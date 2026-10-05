@@ -42,7 +42,35 @@ async function page(path) {
   const response = await fetch(`${BASE}${path}`);
   const html = await response.text();
   const head = html.slice(0, html.indexOf('</head>'));
-  return { status: response.status, html, head };
+  // The structured-data script, so a check can assert on what a crawler reads
+  // rather than on what a reader sees.
+  const graph = (html.match(/<script[^>]*type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/) ?? [])[1] ?? '';
+  return { status: response.status, html, head, text: html, graph };
+}
+
+const token = process.env['CLOUDFLARE_API_TOKEN'];
+const accountId = process.env['CLOUDFLARE_ACCOUNT_ID'];
+const databaseName = process.env['STORE_DATABASE'] ?? 'ozikoro-store';
+let databaseId = null;
+
+/** Run one statement against D1, for fixtures the suite must plant itself. */
+async function d1(sql) {
+  if (!token || !accountId) throw new Error('CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID must be set.');
+  if (!databaseId) {
+    const list = await (await fetch(`https://api.cloudflare.com/client/v4/accounts/${accountId}/d1/database`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })).json();
+    databaseId = (list?.result ?? []).find((entry) => entry.name === databaseName)?.uuid;
+    if (!databaseId) throw new Error(`No D1 database named "${databaseName}".`);
+  }
+  const response = await fetch(`https://api.cloudflare.com/client/v4/accounts/${accountId}/d1/database/${databaseId}/query`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sql }),
+  });
+  const body = await response.json().catch(() => null);
+  if (!response.ok || !body?.success) throw new Error(`d1 failed: ${JSON.stringify(body?.errors ?? response.status)}`);
+  return body.result ?? [];
 }
 
 function count(text, pattern) {
@@ -185,6 +213,82 @@ async function main() {
       response.status >= 200 && response.status < 500,
       `status ${response.status}`
     );
+  }
+
+  // ------------------------------- a discontinued product gets an ARCHIVE PAGE
+  //
+  // The handoff asks for "useful redirects/archive pages for discontinued
+  // products". A 404 discards every inbound link, bookmark and search result for
+  // a thing that once existed, and tells the person following one nothing — so an
+  // archived product renders instead, marked `noindex, follow` and carrying no
+  // offer, because advertising a price for something that cannot be bought is
+  // worse than advertising nothing.
+  //
+  // The fixture is created here and removed at the end, so a failure cannot leave
+  // a retired product in the live shop.
+  const archiveSlug = `e2e-archive-${Date.now().toString(36).slice(-6)}`;
+  if (token && accountId) {
+    try {
+      await d1(
+        `INSERT INTO products (id, slug, title, category, description, status, price_minor, currency)
+         VALUES ('prd_${archiveSlug.replace(/-/g, '_')}', '${archiveSlug}', 'Retired Probe Piece',
+                 'Prints & Posters', 'Archived by the SEO suite to check the archive page.', 'archived', 123400, 'NGN')`
+      );
+
+      const archived = await page(`/products/${archiveSlug}`);
+      check(
+        'an archived product is SERVED, not 404',
+        archived.status === 200,
+        `status ${archived.status} — a retired piece keeps its inbound links`
+      );
+      check(
+        'the archive page says the piece is no longer available',
+        /No longer available/i.test(archived.text)
+      );
+
+      const archivedRobots = metaContent(archived.head, 'robots') ?? '';
+      check(
+        'the archive page is noindex but its links are followed',
+        /noindex/.test(archivedRobots) && /follow/.test(archivedRobots),
+        archivedRobots
+      );
+      check(
+        'the archive page still carries a canonical, so it is not a duplicate',
+        canonicalOf(archived.head).length === 1 && canonicalOf(archived.head)[0].includes(archiveSlug),
+        canonicalOf(archived.head).join(' | ')
+      );
+      check(
+        'the archive page advertises NO offer',
+        !/"offers"/.test(archived.graph ?? ''),
+        'a price for something unbuyable is worse than no price'
+      );
+      check(
+        'the archive page offers a route to what IS available',
+        /Browse what is available|The shop/i.test(archived.text)
+      );
+
+      // A DRAFT must stay unreachable: it is a product somebody is still writing.
+      await d1(
+        `INSERT INTO products (id, slug, title, category, description, status, price_minor, currency)
+         VALUES ('prd_draft_${archiveSlug.replace(/-/g, '_')}', 'draft-${archiveSlug}', 'Draft Probe Piece',
+                 'Prints & Posters', 'Draft by the SEO suite.', 'draft', 123400, 'NGN')`
+      );
+      const draft = await page(`/products/draft-${archiveSlug}`);
+      check(
+        'a DRAFT product is not served at all',
+        draft.status === 404,
+        `status ${draft.status} — an unfinished product must not be reachable`
+      );
+    } finally {
+      try {
+        await d1(`DELETE FROM product_variants WHERE product_id IN (SELECT id FROM products WHERE slug LIKE '%${archiveSlug}%' OR slug LIKE 'draft-${archiveSlug}')`);
+        await d1(`DELETE FROM products WHERE slug LIKE '%${archiveSlug}%' OR slug LIKE 'draft-${archiveSlug}'`);
+      } catch (error) {
+        console.error('archive fixture cleanup failed:', error instanceof Error ? error.message : error);
+      }
+    }
+  } else {
+    console.log('      (archive checks skipped: CLOUDFLARE_API_TOKEN is not in this shell)');
   }
 
   // ------------------------------------ a parent route must not swallow a child
