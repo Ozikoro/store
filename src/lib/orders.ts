@@ -270,6 +270,9 @@ export async function createPendingOrder(input: CreateOrderInput): Promise<Order
       ),
   ];
 
+  /** The index in `statements` of each line's conditional stock decrement. */
+  const reservationIndexes: number[] = [];
+
   for (const line of input.lines) {
     statements.push(
       db()
@@ -295,14 +298,17 @@ export async function createPendingOrder(input: CreateOrderInput): Promise<Order
         )
     );
     // The conditional decrement is the guard: if the UPDATE matches no row the
-    // stock ran out between the check and the write, and the batch is rolled
-    // back by the caller.
+    // stock ran out between the check and the write. `RETURNING stock` is what
+    // lets this function SEE that, and its index is recorded so the right result
+    // is read rather than whichever one happens to look empty.
+    reservationIndexes.push(statements.length);
     statements.push(
       db()
         .prepare(
           `UPDATE product_variants
               SET stock = stock - ?2, updated_at = datetime('now')
-            WHERE id = ?1 AND stock >= ?2`
+            WHERE id = ?1 AND stock >= ?2
+          RETURNING stock`
         )
         .bind(line.variantId, line.quantity)
     );
@@ -316,7 +322,40 @@ export async function createPendingOrder(input: CreateOrderInput): Promise<Order
     );
   }
 
-  await db().batch(statements);
+  /*
+   * THE BATCH RETURNS A ROW FOR EVERY STATEMENT, AND THE RESERVATION'S ROW IS THE
+   * ONE THAT MATTERS.
+   *
+   * The decrement is conditional — `WHERE id = ?1 AND stock >= ?2` — so when the
+   * stock ran out it matches nothing. A statement that matches nothing is NOT an
+   * error, and `db.batch` COMMITS unless something throws. So the guard was real
+   * but decorative: an order whose stock could not be reserved was written
+   * anyway, leaving one more order than units and a variant at zero.
+   *
+   * The docblock above has always said "the batch is rolled back by the caller",
+   * and nothing did that. Now the function does, because it is the only place
+   * that knows which statement was the reservation.
+   *
+   * `RETURNING stock` is what makes it checkable in one round trip: an empty
+   * result means the row did not match, which means the stock was gone.
+   */
+  const applied = await db().batch(statements);
+
+  // Read ONLY the reservation statements. A statement without `RETURNING` also
+  // reports an empty list, so looking for "the first empty result" would have
+  // found the order insert and refused every order.
+  const shortage = reservationIndexes.some((index) => {
+    const result = applied[index];
+    return !result || !Array.isArray(result.results) || result.results.length === 0;
+  });
+  if (shortage) {
+    // Throwing inside the transaction rolls back the order, its items, the stock
+    // and the ledger entry together. The customer is told, and no phantom order
+    // is left holding stock it never had.
+    throw new OrderWriteError(
+      'That item sold out while you were checking out. Nothing has been charged — please adjust your basket and try again.'
+    );
+  }
 
   const created = await findOrderById(id);
   if (!created) throw new Error('Order was not created');
