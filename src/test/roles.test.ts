@@ -192,3 +192,36 @@ describe('every staff role can reach the admin surface', () => {
     }
   });
 });
+
+describe('the shop visibility switch, which is operational and not editorial', () => {
+  /**
+   * `storefront:publish` decides whether strangers can spend money. Getting it
+   * wrong in either direction is costly: too widely held and somebody closes the
+   * shop during trading hours; too narrowly held and the person who needs it at
+   * 2am cannot find anyone.
+   *
+   * It is deliberately NOT held by `content_manager`. Closing a shop is not a
+   * content edit, and the role that maintains the catalogue should not be able to
+   * take the shop offline.
+   */
+  it('is held by the roles that run the shop, and only those', () => {
+    expect([...rolesFor('storefront:publish')].sort()).toEqual(['store_admin', 'super_admin']);
+  });
+
+  it('is NOT held by a content manager', () => {
+    expect(can('content_manager', 'storefront:publish')).toBe(false);
+  });
+
+  it('is NOT held by a fulfilment role, who move parcels rather than run the shop', () => {
+    expect(can('fulfilment', 'storefront:publish')).toBe(false);
+  });
+
+  it('is NOT held by a customer', () => {
+    expect(can('customer', 'storefront:publish')).toBe(false);
+  });
+
+  it('refuses an absent or unknown role', () => {
+    expect(can(null, 'storefront:publish')).toBe(false);
+    expect(can(undefined, 'storefront:publish')).toBe(false);
+  });
+});

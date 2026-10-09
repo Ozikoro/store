@@ -25,6 +25,12 @@ export const CAPABILITIES = {
   'orders:fulfil': ['store_admin', 'fulfilment', 'super_admin'],
   'orders:refund': ['store_admin', 'super_admin'],
   'content:write': ['content_manager', 'store_admin', 'super_admin'],
+  // Whether the shop is visible to the public. An OPERATIONAL decision, not a
+  // permissions one: it is thrown when there is a stock problem, a launch date,
+  // or a mistake found at the wrong moment, and the person running the shop is
+  // the one who needs it. It is held by `store_admin`, deliberately NOT by
+  // `content_manager` — closing a shop is not a content edit.
+  'storefront:publish': ['store_admin', 'super_admin'],
   'permissions:write': ['super_admin'],
   'integrations:write': ['super_admin'],
   'dashboard:read': ['store_admin', 'super_admin'],

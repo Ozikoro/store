@@ -40,11 +40,12 @@ const BASE = arg('url', 'http://127.0.0.1:8787').replace(/\/$/, '');
 const SHOTS = arg('shots', '.e2e');
 
 fs.mkdirSync(SHOTS, { recursive: true });
-import { startBrowser, sleep } from './lib/browser.mjs';
+import { requireShopOpen, startBrowser, sleep } from './lib/browser.mjs';
 
 // One shared session: it asks the operating system for a free port and retries
 // the launch. See `scripts/lib/browser.mjs` — guessing a port from a fixed range
 // made chained runs collide, and a suite then reported the STORE as broken.
+await requireShopOpen(BASE);
 const session = await startBrowser({ label: 'store', shots: SHOTS, windowSize: '1440,1000' });
 // `click` and `fill` return EXPRESSIONS for `evaluate`, not promises.
 const { evaluate, goto, waitFor, click, fill, shot, close, send } = session;
@@ -237,6 +238,24 @@ try {
   check('the pay button is usable on mobile', placeOrderVisible === true);
   await shot('08-checkout-mobile');
   await send('Emulation.clearDeviceMetricsOverride');
+} catch (error) {
+  /*
+   * An exception ANYWHERE in the suite lands here, and this must not exit 0.
+   *
+   * These suites end in `finally { … process.exit(failed.length ? 1 : 0) }`, and
+   * `finally` runs after a thrown error. So an exception that escaped the body —
+   * a navigation that never settled, a page that stopped rendering, a store that
+   * was closed — reached the summary with ZERO recorded checks, printed
+   * "0/0 checks passed", and exited 0. A clean green exit for a suite that never
+   * ran a single assertion.
+   *
+   * It is recorded as a failed check rather than only printed, so the exit code
+   * and the summary agree with each other.
+   */
+  const message = error instanceof Error ? `${error.message}` : String(error);
+  console.error(`\nSUITE ABORTED before finishing: ${message}`);
+  if (error instanceof Error && error.stack) console.error(error.stack.split('\n').slice(0, 4).join('\n'));
+  check('the suite ran to completion', false, message);
 } finally {
   const failed = results.filter((result) => !result.ok);
   console.log(`\n${results.length - failed.length}/${results.length} checks passed.`);

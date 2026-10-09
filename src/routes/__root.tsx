@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { Outlet, createRootRouteWithContext, HeadContent, Scripts } from '@tanstack/react-router';
+import { Outlet, createRootRouteWithContext, HeadContent, Scripts, redirect } from '@tanstack/react-router';
 import type { ReactNode } from 'react';
 import appCss from '../styles.css?url';
 import { CartProvider, type CartSnapshot } from '@/store/cart';
@@ -15,6 +15,7 @@ import {
   settingsFromMatches,
 } from '@/store/head-compose';
 import { FALLBACK_SETTINGS } from '@/lib/seo-settings';
+import { COMING_SOON_PATH, isHiddenWhenClosed, storefrontIsOpen } from '@/lib/storefront';
 
 /**
  * The root route.
@@ -35,8 +36,57 @@ import { FALLBACK_SETTINGS } from '@/lib/seo-settings';
  *
  * THE HEAD IS COMPOSED HERE, FOR EVERY PAGE. See `src/store/head-compose.ts` for
  * why that is not each route's job.
+ *
+ * THE STOREFRONT'S VISIBILITY IS ALSO DECIDED HERE, and this is the only place it
+ * can be decided once. The switch is a single setting, but the storefront is forty
+ * routes, so a check inside each page would be forty chances to forget one — and
+ * the page that forgot would be the one a customer found first. The root sees
+ * every navigation, so it enforces the switch for all of them, and the routes that
+ * must stay reachable while the shop is closed are named in `src/lib/storefront.ts`
+ * rather than remembered per page.
  */
 export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()({
+  /**
+   * Close the door, before anything else runs.
+   *
+   * `beforeLoad` rather than a render-time branch, for two reasons. It happens
+   * BEFORE the page's own loader, so a hidden page cannot do work or leak a title
+   * on its way to being hidden. And it is a real redirect, so a visitor following
+   * a stale link lands somewhere they can understand, at an address they can
+   * share, rather than on a page that silently is not what they asked for.
+   *
+   * A redirect to the page already being requested would loop, so the closed-state
+   * page is excluded — `isHiddenWhenClosed` excludes it along with the admin, the
+   * payment webhook, and the identity provider, each for a reason recorded beside
+   * the list.
+   */
+  beforeLoad: async ({ location }) => {
+    const open = await storefrontIsOpen();
+    if (open) return;
+    if (!isHiddenWhenClosed(location.pathname)) return;
+
+    /*
+     * STAFF SEE THEIR OWN SHOP WHILE IT IS CLOSED.
+     *
+     * Without this, closing the shop locks out the only people who can open it
+     * again — and makes it impossible to look at the thing you are preparing. A
+     * closed shop is a closed DOOR, not a blindfold for the people inside it.
+     *
+     * The session is resolved here rather than reusing the loader's, because
+     * `beforeLoad` runs before the loader and cannot wait for it. That is one
+     * extra session read on a request that is about to be redirected anyway — the
+     * cheapest place in the whole app to spend it.
+     *
+     * `getAdminSession` already catches its own failures and reports "not staff",
+     * so a database blip fails toward hiding the shop, which is the safe
+     * direction.
+     */
+    const session = await getAdminSession().catch(() => null);
+    if (session?.staff === true) return;
+
+    throw redirect({ to: COMING_SOON_PATH, replace: true });
+  },
+
   loader: async () => {
     const [cart, admin, seo] = await Promise.all([
       getCart().catch((error: unknown) => {

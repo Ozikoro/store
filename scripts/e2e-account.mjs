@@ -1,5 +1,5 @@
 import fs from 'node:fs';
-import { startBrowser, sleep } from './lib/browser.mjs';
+import { requireShopOpen, startBrowser, sleep } from './lib/browser.mjs';
 
 function arg(name, fallback) {
   const index = process.argv.indexOf(`--${name}`);
@@ -18,6 +18,7 @@ if (!EMAIL || !PASSWORD) {
 
 // The shared session allocates its own free port and retries the launch; see
 // `scripts/lib/browser.mjs` for why guessing a port broke chained runs.
+await requireShopOpen(BASE);
 const session = await startBrowser({ label: 'acct', shots: SHOTS, windowSize: '1440,1000' });
 const { evaluate, goto, waitFor, shot, close } = session;
 
@@ -268,6 +269,24 @@ try {
   await goto(`${BASE}/account`);
   const gateAfter = await evaluate(`document.body.innerText.includes('Sign in')`);
   check('after signing out the account asks for sign-in', gateAfter === true);
+} catch (error) {
+  /*
+   * An exception ANYWHERE in the suite lands here, and this must not exit 0.
+   *
+   * These suites end in `finally { … process.exit(failed.length ? 1 : 0) }`, and
+   * `finally` runs after a thrown error. So an exception that escaped the body —
+   * a navigation that never settled, a page that stopped rendering, a store that
+   * was closed — reached the summary with ZERO recorded checks, printed
+   * "0/0 checks passed", and exited 0. A clean green exit for a suite that never
+   * ran a single assertion.
+   *
+   * It is recorded as a failed check rather than only printed, so the exit code
+   * and the summary agree with each other.
+   */
+  const message = error instanceof Error ? `${error.message}` : String(error);
+  console.error(`\nSUITE ABORTED before finishing: ${message}`);
+  if (error instanceof Error && error.stack) console.error(error.stack.split('\n').slice(0, 4).join('\n'));
+  check('the suite ran to completion', false, message);
 } finally {
   const failed = results.filter((result) => !result.ok);
   console.log(`\n${results.length - failed.length}/${results.length} checks passed.`);

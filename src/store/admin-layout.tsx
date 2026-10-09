@@ -30,7 +30,8 @@ interface NavItem {
     | '/admin/audit'
     | '/admin/permissions'
     | '/admin/seo'
-    | '/admin/outbox';
+    | '/admin/outbox'
+    | '/admin/store';
   capability: Capability;
 }
 
@@ -40,6 +41,9 @@ const NAV: readonly NavItem[] = [
   { label: 'Products', to: '/admin/products', capability: 'catalog:read' },
   { label: 'Discounts', to: '/admin/discounts', capability: 'catalog:write' },
   { label: 'SEO', to: '/admin/seo', capability: 'content:write' },
+  // Whether the shop is visible to the public. Kept high in the list because it
+  // is the switch somebody reaches for in a hurry.
+  { label: 'Storefront', to: '/admin/store', capability: 'storefront:publish' },
   { label: 'Outbox', to: '/admin/outbox', capability: 'orders:read:all' },
   { label: 'Audit', to: '/admin/audit', capability: 'dashboard:read' },
   // Only a super admin sees this link, and only a super admin can call the

@@ -428,3 +428,35 @@ export function createReporter() {
   };
   return { check, report, results };
 }
+
+/**
+ * Stop with a clear SKIP when the shop is closed to the public.
+ *
+ * Suites that drive the storefront cannot run behind a coming-soon page: the
+ * product page redirects, the add-to-cart button is not there, and the failure
+ * looks like a broken store rather than a closed one. That confusion is worse
+ * than no result at all, so it is refused up front and says why.
+ *
+ * Exit code 3, distinct from 1 (failed) and 2 (misconfigured), so an automated
+ * run can tell "could not run" from "ran and failed" — the two must never be
+ * collapsed into one another.
+ */
+export async function requireShopOpen(base = 'https://shop.ozikoro.com') {
+  let open = false;
+  try {
+    const response = await fetch(`${base}/`, { redirect: 'manual' });
+    open = response.status === 200;
+  } catch {
+    open = false;
+  }
+  if (open) return;
+
+  console.log(
+    `\nSKIPPED: ${base} is closed to the public, so this suite cannot run.\n` +
+      '         The storefront redirects to /coming-soon, and every assertion here\n' +
+      '         is about a page a visitor can reach.\n' +
+      '         Open it with:  Admin -> Storefront  (or set store.open = 1)\n' +
+      '         Exit code 3 means SKIPPED, not passed and not failed.'
+  );
+  process.exit(3);
+}

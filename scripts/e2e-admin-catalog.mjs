@@ -27,20 +27,14 @@
  */
 
 import { spawn, spawnSync } from 'node:child_process';
+import { createHash, randomBytes } from 'node:crypto';
 import fs from 'node:fs';
-import { startBrowser, sleep } from './lib/browser.mjs';
+import { requireShopOpen, startBrowser, sleep } from './lib/browser.mjs';
 
 const index = process.argv.indexOf('--url');
 const BASE = (index === -1 ? 'https://shop.ozikoro.com' : process.argv[index + 1]).replace(/\/+$/, '');
 const shotsIndex = process.argv.indexOf('--shots');
 const SHOTS = shotsIndex === -1 ? '.e2e-admin-catalog' : process.argv[shotsIndex + 1];
-
-const EMAIL = process.env['E2E_EMAIL'] ?? '';
-const PASSWORD = process.env['E2E_PASSWORD'] ?? '';
-if (!EMAIL || !PASSWORD) {
-  console.error('E2E_EMAIL and E2E_PASSWORD must be set.');
-  process.exit(2);
-}
 
 fs.mkdirSync(SHOTS, { recursive: true });
 
@@ -50,9 +44,42 @@ function check(name, ok, detail = '') {
   console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${detail ? `  — ${detail}` : ''}`);
 }
 
+// The suite plants its own staff account, so it needs the database. It already
+// reads stock through D1, so this is the same access it had.
+const API = 'https://api.cloudflare.com/client/v4';
+const CF_TOKEN = process.env['CLOUDFLARE_API_TOKEN'];
+const CF_ACCOUNT = process.env['CLOUDFLARE_ACCOUNT_ID'];
+const DATABASE = process.env['STORE_DATABASE'] ?? 'ozikoro-store';
+let databaseId = null;
+
+async function query(sql) {
+  if (!CF_TOKEN || !CF_ACCOUNT) {
+    console.error('CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID must be set.');
+    process.exit(2);
+  }
+  if (!databaseId) {
+    const list = await (await fetch(`${API}/accounts/${CF_ACCOUNT}/d1/database`, {
+      headers: { Authorization: `Bearer ${CF_TOKEN}` },
+    })).json();
+    databaseId = (list?.result ?? []).find((entry) => entry.name === DATABASE)?.uuid;
+    if (!databaseId) throw new Error(`No D1 database named "${DATABASE}".`);
+  }
+  const response = await fetch(`${API}/accounts/${CF_ACCOUNT}/d1/database/${databaseId}/query`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${CF_TOKEN}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sql }),
+  });
+  const body = await response.json().catch(() => null);
+  if (!response.ok || !body?.success) throw new Error(`query failed: ${JSON.stringify(body?.errors ?? response.status)}`);
+  return body.result ?? [];
+}
+
 // Unique per run, so a previous failed run cannot make this one pass.
 const STAMP = Date.now().toString(36).slice(-6);
 const SLUG = `e2e-probe-${STAMP}`;
+const STAFF_ID = `cus_catalog_${STAMP}`;
+const STAFF_TOKEN = randomBytes(32).toString('base64url');
+const STAFF_SESSION = createHash('sha256').update(STAFF_TOKEN, 'utf8').digest('hex');
 const TITLE = `E2E Probe ${STAMP}`;
 const PRICE_NAIRA = 1234;
 const EDITED_PRICE_NAIRA = 4321;
@@ -60,6 +87,7 @@ const EDITED_PRICE_NAIRA = 4321;
 // One shared session: it asks the operating system for a free port and retries
 // the launch. See `scripts/lib/browser.mjs` — guessing a port from a fixed range
 // made chained runs collide, and a suite then reported the STORE as broken.
+await requireShopOpen(BASE);
 const session = await startBrowser({ label: 'cat', shots: SHOTS, windowSize: '1440,1200' });
 // `click` and `fill` return EXPRESSIONS for `evaluate`, not promises.
 const { evaluate, goto, waitFor, click, fill, shot, close, send } = session;
@@ -108,19 +136,24 @@ let actualSlug = SLUG;
 try {
   stockBefore = await readTotalStock();
 
-  // ---------------------------------------------------------------- sign in
-  await goto(`${BASE}/account`);
-  await waitFor('[data-testid="account-email"]');
-  await evaluate(fill('[data-testid="account-email"]', EMAIL));
-  await evaluate(fill('[data-testid="account-password"]', PASSWORD));
-  await evaluate(click('[data-testid="account-submit"]'));
-  let signedIn = false;
-  for (let i = 0; i < 50 && !signedIn; i += 1) {
-    await sleep(500);
-    signedIn = (await evaluate(`!!document.querySelector('[data-testid="sign-out"]')`)) === true;
-  }
-  check('signed in as staff', signedIn === true);
-  if (!signedIn) throw new Error('cannot continue without a signed-in staff session');
+  // ------------------------------------------------------- a staff session
+  //
+  // MINTED, not signed in for. This suite is about the ADMIN product form, and it
+  // used to sign in through `/account` — which is part of the storefront. That
+  // made the admin's own tests fail whenever the shop was closed, and made a
+  // flaky sign-in look like a broken catalogue. `createSession` stores only
+  // `sha256(token)`, so the row is written directly and the same HttpOnly cookie
+  // the app sets is handed over.
+  await query(
+    `INSERT INTO customers (id, email, name, role)
+     VALUES ('${STAFF_ID}', 'catalog-staff-${STAMP}@example.com', 'Catalog Probe', 'super_admin')`
+  );
+  await query(
+    `INSERT INTO sessions (id, customer_id, role, expires_at, user_agent, ip_hash)
+     VALUES ('${STAFF_SESSION}', '${STAFF_ID}', 'super_admin', datetime('now', '+1 day'), 'catalog-probe', 'catalog-probe')`
+  );
+  await session.setCookie('ozikoro_store_session', STAFF_TOKEN, { domain: new URL(BASE).hostname });
+  check('a staff session is in place', true, 'minted directly');
 
   // --------------------------------------------------- sweep earlier debris
   //
@@ -330,6 +363,30 @@ try {
     );
     await shot('02-after-archive');
   }
+} catch (error) {
+  try {
+    await query(`DELETE FROM sessions WHERE customer_id = '${STAFF_ID}'`);
+    await query(`DELETE FROM customers WHERE id = '${STAFF_ID}'`);
+  } catch {
+    /* the account is a probe; failing to remove it must not mask the real error */
+  }
+  /*
+   * An exception ANYWHERE in the suite lands here, and this must not exit 0.
+   *
+   * These suites end in `finally { … process.exit(failed.length ? 1 : 0) }`, and
+   * `finally` runs after a thrown error. So an exception that escaped the body —
+   * a navigation that never settled, a page that stopped rendering, a store that
+   * was closed — reached the summary with ZERO recorded checks, printed
+   * "0/0 checks passed", and exited 0. A clean green exit for a suite that never
+   * ran a single assertion.
+   *
+   * It is recorded as a failed check rather than only printed, so the exit code
+   * and the summary agree with each other.
+   */
+  const message = error instanceof Error ? `${error.message}` : String(error);
+  console.error(`\nSUITE ABORTED before finishing: ${message}`);
+  if (error instanceof Error && error.stack) console.error(error.stack.split('\n').slice(0, 4).join('\n'));
+  check('the suite ran to completion', false, message);
 } finally {
   // ------------------------------------------------------------------ cleanup
   //

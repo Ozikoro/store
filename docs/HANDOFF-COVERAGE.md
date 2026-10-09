@@ -25,6 +25,7 @@ taken on trust.
 | Refund/return handling | `e2e-refund-admin.mjs`, `e2e-refund-webhook.mjs`. |
 | Inventory and low-stock alerts | `admin-metrics.ts` counts variants at or below 3; `inventory_movements` is the ledger, checked by `reconcile-stock.mjs`. |
 | Dashboard: revenue, orders, AOV, top products | `getDashboard`. |
+| Open or close the shop to the public | **Admin → Storefront.** `storefront:publish`, held by store admins and super admins, audited on every throw. See `docs/STOREFRONT.md` — including the five things a closed shop must keep working, because each would be an incident. |
 
 ## 8. SEO and policy
 

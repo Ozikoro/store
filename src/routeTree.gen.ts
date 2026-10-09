@@ -14,6 +14,7 @@ import { Route as AboutRouteImport } from './routes/about'
 import { Route as AdminRouteRouteImport } from './routes/admin/route'
 import { Route as CartRouteImport } from './routes/cart'
 import { Route as CheckoutRouteRouteImport } from './routes/checkout/route'
+import { Route as ComingSoonRouteImport } from './routes/coming-soon'
 import { Route as ContactRouteImport } from './routes/contact'
 import { Route as PrivacyRouteImport } from './routes/privacy'
 import { Route as ProductsRouteRouteImport } from './routes/products/route'
@@ -31,6 +32,7 @@ import { Route as AdminOutboxRouteImport } from './routes/admin/outbox'
 import { Route as AdminPermissionsRouteImport } from './routes/admin/permissions'
 import { Route as AdminProductsRouteRouteImport } from './routes/admin/products/route'
 import { Route as AdminSeoRouteImport } from './routes/admin/seo'
+import { Route as AdminStoreRouteImport } from './routes/admin/store'
 import { Route as CheckoutIndexRouteImport } from './routes/checkout/index'
 import { Route as CheckoutCallbackRouteImport } from './routes/checkout.callback'
 import { Route as CollectionsIndexRouteImport } from './routes/collections/index'
@@ -66,6 +68,11 @@ const CartRoute = CartRouteImport.update({
 const CheckoutRouteRoute = CheckoutRouteRouteImport.update({
   id: '/checkout',
   path: '/checkout',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ComingSoonRoute = ComingSoonRouteImport.update({
+  id: '/coming-soon',
+  path: '/coming-soon',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ContactRoute = ContactRouteImport.update({
@@ -153,6 +160,11 @@ const AdminSeoRoute = AdminSeoRouteImport.update({
   path: '/seo',
   getParentRoute: () => AdminRouteRoute,
 } as any)
+const AdminStoreRoute = AdminStoreRouteImport.update({
+  id: '/store',
+  path: '/store',
+  getParentRoute: () => AdminRouteRoute,
+} as any)
 const CheckoutIndexRoute = CheckoutIndexRouteImport.update({
   id: '/',
   path: '/',
@@ -216,6 +228,7 @@ export interface FileRoutesByFullPath {
   '/products': typeof ProductsRouteRouteWithChildren
   '/about': typeof AboutRoute
   '/cart': typeof CartRoute
+  '/coming-soon': typeof ComingSoonRoute
   '/contact': typeof ContactRoute
   '/privacy': typeof PrivacyRoute
   '/refunds': typeof RefundsRoute
@@ -230,6 +243,7 @@ export interface FileRoutesByFullPath {
   '/admin/outbox': typeof AdminOutboxRoute
   '/admin/permissions': typeof AdminPermissionsRoute
   '/admin/seo': typeof AdminSeoRoute
+  '/admin/store': typeof AdminStoreRoute
   '/checkout/callback': typeof CheckoutCallbackRoute
   '/collections/$slug': typeof CollectionsSlugRoute
   '/oidc/callback': typeof OidcCallbackRoute
@@ -249,6 +263,7 @@ export interface FileRoutesByTo {
   '/products': typeof ProductsRouteRouteWithChildren
   '/about': typeof AboutRoute
   '/cart': typeof CartRoute
+  '/coming-soon': typeof ComingSoonRoute
   '/contact': typeof ContactRoute
   '/privacy': typeof PrivacyRoute
   '/refunds': typeof RefundsRoute
@@ -261,6 +276,7 @@ export interface FileRoutesByTo {
   '/admin/outbox': typeof AdminOutboxRoute
   '/admin/permissions': typeof AdminPermissionsRoute
   '/admin/seo': typeof AdminSeoRoute
+  '/admin/store': typeof AdminStoreRoute
   '/checkout/callback': typeof CheckoutCallbackRoute
   '/collections/$slug': typeof CollectionsSlugRoute
   '/oidc/callback': typeof OidcCallbackRoute
@@ -283,6 +299,7 @@ export interface FileRoutesById {
   '/products': typeof ProductsRouteRouteWithChildren
   '/about': typeof AboutRoute
   '/cart': typeof CartRoute
+  '/coming-soon': typeof ComingSoonRoute
   '/contact': typeof ContactRoute
   '/privacy': typeof PrivacyRoute
   '/refunds': typeof RefundsRoute
@@ -297,6 +314,7 @@ export interface FileRoutesById {
   '/admin/outbox': typeof AdminOutboxRoute
   '/admin/permissions': typeof AdminPermissionsRoute
   '/admin/seo': typeof AdminSeoRoute
+  '/admin/store': typeof AdminStoreRoute
   '/checkout/callback': typeof CheckoutCallbackRoute
   '/collections/$slug': typeof CollectionsSlugRoute
   '/oidc/callback': typeof OidcCallbackRoute
@@ -320,6 +338,7 @@ export interface FileRouteTypes {
     | '/products'
     | '/about'
     | '/cart'
+    | '/coming-soon'
     | '/contact'
     | '/privacy'
     | '/refunds'
@@ -334,6 +353,7 @@ export interface FileRouteTypes {
     | '/admin/outbox'
     | '/admin/permissions'
     | '/admin/seo'
+    | '/admin/store'
     | '/checkout/callback'
     | '/collections/$slug'
     | '/oidc/callback'
@@ -353,6 +373,7 @@ export interface FileRouteTypes {
     | '/products'
     | '/about'
     | '/cart'
+    | '/coming-soon'
     | '/contact'
     | '/privacy'
     | '/refunds'
@@ -365,6 +386,7 @@ export interface FileRouteTypes {
     | '/admin/outbox'
     | '/admin/permissions'
     | '/admin/seo'
+    | '/admin/store'
     | '/checkout/callback'
     | '/collections/$slug'
     | '/oidc/callback'
@@ -386,6 +408,7 @@ export interface FileRouteTypes {
     | '/products'
     | '/about'
     | '/cart'
+    | '/coming-soon'
     | '/contact'
     | '/privacy'
     | '/refunds'
@@ -400,6 +423,7 @@ export interface FileRouteTypes {
     | '/admin/outbox'
     | '/admin/permissions'
     | '/admin/seo'
+    | '/admin/store'
     | '/checkout/callback'
     | '/collections/$slug'
     | '/oidc/callback'
@@ -422,6 +446,7 @@ export interface RootRouteChildren {
   ProductsRouteRoute: typeof ProductsRouteRouteWithChildren
   AboutRoute: typeof AboutRoute
   CartRoute: typeof CartRoute
+  ComingSoonRoute: typeof ComingSoonRoute
   ContactRoute: typeof ContactRoute
   PrivacyRoute: typeof PrivacyRoute
   RefundsRoute: typeof RefundsRoute
@@ -471,6 +496,13 @@ declare module '@tanstack/react-router' {
       path: '/checkout'
       fullPath: '/checkout'
       preLoaderRoute: typeof CheckoutRouteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/coming-soon': {
+      id: '/coming-soon'
+      path: '/coming-soon'
+      fullPath: '/coming-soon'
+      preLoaderRoute: typeof ComingSoonRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/contact': {
@@ -592,6 +624,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminSeoRouteImport
       parentRoute: typeof AdminRouteRoute
     }
+    '/admin/store': {
+      id: '/admin/store'
+      path: '/store'
+      fullPath: '/admin/store'
+      preLoaderRoute: typeof AdminStoreRouteImport
+      parentRoute: typeof AdminRouteRoute
+    }
     '/checkout/': {
       id: '/checkout/'
       path: '/'
@@ -706,6 +745,7 @@ interface AdminRouteRouteChildren {
   AdminOutboxRoute: typeof AdminOutboxRoute
   AdminPermissionsRoute: typeof AdminPermissionsRoute
   AdminSeoRoute: typeof AdminSeoRoute
+  AdminStoreRoute: typeof AdminStoreRoute
   AdminIndexRoute: typeof AdminIndexRoute
 }
 
@@ -717,6 +757,7 @@ const AdminRouteRouteChildren: AdminRouteRouteChildren = {
   AdminOutboxRoute: AdminOutboxRoute,
   AdminPermissionsRoute: AdminPermissionsRoute,
   AdminSeoRoute: AdminSeoRoute,
+  AdminStoreRoute: AdminStoreRoute,
   AdminIndexRoute: AdminIndexRoute,
 }
 
@@ -757,6 +798,7 @@ const rootRouteChildren: RootRouteChildren = {
   ProductsRouteRoute: ProductsRouteRouteWithChildren,
   AboutRoute: AboutRoute,
   CartRoute: CartRoute,
+  ComingSoonRoute: ComingSoonRoute,
   ContactRoute: ContactRoute,
   PrivacyRoute: PrivacyRoute,
   RefundsRoute: RefundsRoute,

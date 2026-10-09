@@ -38,6 +38,32 @@ function check(name, ok, detail = '') {
   console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${detail ? `  — ${detail}` : ''}`);
 }
 
+/*
+ * Stop with a clear SKIP when the shop is closed to the public.
+ *
+ * Most of this suite reads pages a visitor has to be able to reach. Behind the
+ * coming-soon page every canonical correctly points at /coming-soon, and the
+ * suite would report dozens of failures that describe the gate working rather
+ * than the SEO being wrong. Refusing to run is the honest answer.
+ *
+ * Exit code 3 means SKIPPED — deliberately distinct from 1 (failed) and 2
+ * (misconfigured), because "could not run" and "ran and failed" must never be
+ * collapsed into one another.
+ */
+{
+  const reachable = await fetch(`${BASE}/`, { redirect: 'manual' })
+    .then((response) => response.status === 200)
+    .catch(() => false);
+  if (!reachable) {
+    console.log(
+      `\nSKIPPED: ${BASE} is closed to the public, so this suite cannot run.\n` +
+        '         Open it with:  Admin -> Storefront  (or set store.open = 1)\n' +
+        '         Exit code 3 means SKIPPED, not passed and not failed.'
+    );
+    process.exit(3);
+  }
+}
+
 async function page(path) {
   const response = await fetch(`${BASE}${path}`);
   const html = await response.text();

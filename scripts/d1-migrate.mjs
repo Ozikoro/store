@@ -76,6 +76,26 @@ async function runSql(databaseId, sql) {
 }
 
 /**
+ * Does this chunk contain any actual SQL?
+ *
+ * A migration that ends a section with a `--` note leaves a trailing chunk that
+ * is ONLY a comment. Sending it fails with `No SQL statements detected`, and —
+ * worse — the migrator counts that as a failure and prints one. A migration that
+ * reports a failure when nothing is wrong teaches people to skim the output,
+ * which is precisely when a real failure gets missed.
+ *
+ * A comment-only chunk is skipped. A chunk with a comment AND a statement is
+ * kept, because the comment belongs to the statement.
+ */
+function hasSql(chunk) {
+  if (!chunk) return false;
+  return chunk
+    .split('\n')
+    .map((line) => line.trim())
+    .some((line) => line.length > 0 && !line.startsWith('--'));
+}
+
+/**
  * Split a migration file into individually runnable statements.
  *
  * Naive `split(';')` would break on a semicolon inside a string literal, and
@@ -115,14 +135,14 @@ function splitStatements(sql) {
     }
     if (!inString && char === ';') {
       const trimmed = current.trim();
-      if (trimmed) statements.push(trimmed);
+      if (hasSql(trimmed)) statements.push(trimmed);
       current = '';
       continue;
     }
     current += char;
   }
   const trailing = current.trim();
-  if (trailing) statements.push(trailing);
+  if (hasSql(trailing)) statements.push(trailing);
   return statements;
 }
 

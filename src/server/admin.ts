@@ -1195,3 +1195,47 @@ export const flushOutbox = createServerFn({ method: 'POST' }).handler(async () =
     message: `${report.sent} sent, ${report.failed} failed, of ${report.attempted} attempted.`,
   };
 });
+
+// ------------------------------------------------------------- the shop switch
+
+/**
+ * Read the storefront switch, for the admin screen.
+ *
+ * `storefront:publish` rather than `dashboard:read`: a fulfilment role has no
+ * business knowing or changing whether the shop is open to the public, and a
+ * capability that is only checked in the interface is not a check at all.
+ */
+export const getStorefrontState = createServerFn({ method: 'GET' }).handler(
+  async (): Promise<{
+    open: boolean;
+    /**
+     * The address the switch controls, so the screen can offer a link to see the
+     * result. Read from the request rather than hard-coded, because a store
+     * reachable at two hostnames must not have a preview button that goes to
+     * whichever one was baked in.
+     */
+    previewPath: string;
+  }> => {
+    await requireStaff('storefront:publish');
+    const { storefrontIsOpen } = await import('../lib/storefront');
+    return { open: await storefrontIsOpen(), previewPath: '/' };
+  }
+);
+
+/**
+ * Open or close the shop.
+ *
+ * The actor is passed to the audit record, so the log says WHO closed the shop
+ * and not merely that it closed.
+ */
+export const setStorefrontState = createServerFn({ method: 'POST' })
+  .validator((input: unknown) => {
+    const data = input as { open?: unknown };
+    return { open: data?.open === true };
+  })
+  .handler(async ({ data }): Promise<{ open: boolean }> => {
+    const actor = asAuditActor(await requireStaff('storefront:publish'));
+    const { setStorefrontOpen } = await import('../lib/storefront');
+    await setStorefrontOpen(data.open, actor);
+    return { open: data.open };
+  });
